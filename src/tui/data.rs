@@ -14,11 +14,20 @@ pub struct ProjectSummary {
     pub is_internal: bool,
 }
 
+/// Financial summary from Xero.
+#[derive(Debug, Clone, Default)]
+pub struct Financials {
+    pub total_value: f64,
+    pub total_invoiced: f64,
+    pub total_outstanding: f64,
+}
+
 /// Dashboard data loaded from the API.
 #[derive(Debug, Clone, Default)]
 pub struct DashboardData {
     pub projects: Vec<ProjectSummary>,
     pub pending_changes_count: usize,
+    pub financials: Financials,
 }
 
 /// Fetch dashboard data from the API.
@@ -39,9 +48,20 @@ pub async fn fetch_dashboard(client: &ApiClient) -> anyhow::Result<DashboardData
         .map(|a| a.len())
         .unwrap_or(0);
 
+    // Fetch Xero financials (non-fatal if not connected)
+    let financials = match client.get::<serde_json::Value>("/xero/financials").await {
+        Ok(resp) => Financials {
+            total_value: resp["data"]["total_value"].as_f64().unwrap_or(0.0),
+            total_invoiced: resp["data"]["total_invoiced"].as_f64().unwrap_or(0.0),
+            total_outstanding: resp["data"]["total_outstanding"].as_f64().unwrap_or(0.0),
+        },
+        Err(_) => Financials::default(),
+    };
+
     Ok(DashboardData {
         projects,
         pending_changes_count,
+        financials,
     })
 }
 

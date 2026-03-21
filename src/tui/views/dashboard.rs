@@ -125,15 +125,51 @@ fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(widget, area);
 }
 
-/// Render the right panel — pending changes.
+/// Render the right panel — financials + pending changes.
 fn render_right_panel(frame: &mut Frame, area: Rect, app: &App) {
-    let mut lines = vec![
-        Line::from(Span::styled("  PENDING CHANGES", theme::title_style())),
-        Line::from(Span::styled(
+    let fin = &app.dashboard.financials;
+    let has_financials = fin.total_value > 0.0 || fin.total_invoiced > 0.0;
+
+    let mut lines = Vec::new();
+
+    if has_financials {
+        lines.push(Line::from(Span::styled(
+            "  FINANCIALS",
+            theme::title_style(),
+        )));
+        lines.push(Line::from(Span::styled(
             "  ─────────────────────────────",
             theme::muted_style(),
-        )),
-    ];
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("  Invoiced    ", theme::muted_style()),
+            Span::styled(
+                format!("${:.0}K", fin.total_invoiced / 1000.0),
+                theme::label_style(),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Outstanding ", theme::muted_style()),
+            Span::styled(
+                format!("${:.0}K", fin.total_outstanding / 1000.0),
+                if fin.total_outstanding > 0.0 {
+                    theme::warning_style()
+                } else {
+                    theme::success_style()
+                },
+            ),
+        ]));
+        lines.push(Line::from(""));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  PENDING CHANGES",
+        theme::title_style(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────",
+        theme::muted_style(),
+    )));
 
     if app.dashboard.pending_changes_count > 0 {
         lines.push(Line::from(vec![
