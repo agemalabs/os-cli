@@ -16,7 +16,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            api_url: "http://localhost:8080".to_string(),
+            api_url: "https://api.os.agemalabs.com".to_string(),
             token: String::new(),
             default_org: "agema-labs".to_string(),
         }
@@ -72,9 +72,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_has_localhost_url() {
+    fn default_config_has_production_url() {
         let config = Config::default();
-        assert_eq!(config.api_url, "http://localhost:8080");
+        assert_eq!(config.api_url, "https://api.os.agemalabs.com");
         assert_eq!(config.default_org, "agema-labs");
     }
 
@@ -83,7 +83,7 @@ mod tests {
         let config = Config::default();
         let toml_str = toml::to_string_pretty(&config).unwrap();
         assert!(toml_str.contains("api_url"));
-        assert!(toml_str.contains("localhost:8080"));
+        assert!(toml_str.contains("api.os.agemalabs.com"));
     }
 
     #[test]
