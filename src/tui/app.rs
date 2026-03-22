@@ -48,7 +48,7 @@ pub enum View {
 /// Top-level application state.
 pub struct App {
     pub view: View,
-    pub previous_view: Option<View>,
+    pub view_stack: Vec<View>,
     pub running: bool,
     pub client: ApiClient,
     pub user_name: String,
@@ -82,7 +82,7 @@ impl App {
 
         Self {
             view,
-            previous_view: None,
+            view_stack: Vec::new(),
             running: true,
             client,
             user_name: String::new(),
@@ -104,16 +104,16 @@ impl App {
         }
     }
 
-    /// Navigate to a new view, saving the current one for back navigation.
+    /// Navigate to a new view, pushing the current one onto the back stack.
     pub fn navigate(&mut self, view: View) {
-        self.previous_view = Some(self.view.clone());
+        self.view_stack.push(self.view.clone());
         self.view = view;
         self.selected_index = 0;
     }
 
-    /// Go back to the previous view.
+    /// Go back to the previous view. Supports multi-level back navigation.
     pub fn go_back(&mut self) {
-        if let Some(prev) = self.previous_view.take() {
+        if let Some(prev) = self.view_stack.pop() {
             self.view = prev;
             self.selected_index = 0;
         }
@@ -179,6 +179,24 @@ mod tests {
         app.navigate(View::Search);
         assert_eq!(app.view, View::Search);
 
+        app.go_back();
+        assert_eq!(app.view, View::Dashboard);
+    }
+
+    #[test]
+    fn multi_level_back_navigation() {
+        let mut app = test_app();
+        app.navigate(View::Pipeline);
+        app.navigate(View::LeadDetail { id: "abc".into() });
+        assert_eq!(app.view, View::LeadDetail { id: "abc".into() });
+
+        app.go_back();
+        assert_eq!(app.view, View::Pipeline);
+
+        app.go_back();
+        assert_eq!(app.view, View::Dashboard);
+
+        // At dashboard, go_back does nothing
         app.go_back();
         assert_eq!(app.view, View::Dashboard);
     }
