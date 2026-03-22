@@ -48,21 +48,63 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     render_projects(frame, content_chunks[0], app);
     render_right_panel(frame, content_chunks[1], app);
 
+    // ---- Input bar ----
+    if app.input_mode.is_some() {
+        let input_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(6),
+                Constraint::Length(3),
+                Constraint::Length(3),
+            ])
+            .split(area);
+
+        let label = match &app.input_mode {
+            Some(crate::tui::app::InputMode::NewProject) => "Project (name:slug)",
+            _ => "Input",
+        };
+        let input_bar = Paragraph::new(Line::from(vec![
+            Span::styled(format!("  {} > ", label), theme::active_style()),
+            Span::styled(&app.input_buffer, theme::label_style()),
+            Span::styled("█", theme::active_style()),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::active_style()),
+        );
+        frame.render_widget(input_bar, input_chunks[3]);
+    }
+
     // ---- Footer ----
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Enter", theme::key_style()),
-        Span::styled("·open  ", theme::muted_style()),
-        Span::styled("l", theme::key_style()),
-        Span::styled("·status  ", theme::muted_style()),
-        Span::styled("s", theme::key_style()),
-        Span::styled("·search  ", theme::muted_style()),
-        Span::styled("c", theme::key_style()),
-        Span::styled("·changes  ", theme::muted_style()),
-        Span::styled("/", theme::key_style()),
-        Span::styled("·pipeline  ", theme::muted_style()),
-        Span::styled("q", theme::key_style()),
-        Span::styled("·quit", theme::muted_style()),
-    ]))
+    let footer = if app.input_mode.is_some() {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Enter", theme::key_style()),
+            Span::styled("·submit  ", theme::muted_style()),
+            Span::styled("Esc", theme::key_style()),
+            Span::styled("·cancel", theme::muted_style()),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Enter", theme::key_style()),
+            Span::styled("·open  ", theme::muted_style()),
+            Span::styled("n", theme::key_style()),
+            Span::styled("·new project  ", theme::muted_style()),
+            Span::styled("l", theme::key_style()),
+            Span::styled("·status  ", theme::muted_style()),
+            Span::styled("s", theme::key_style()),
+            Span::styled("·search  ", theme::muted_style()),
+            Span::styled("c", theme::key_style()),
+            Span::styled("·chat  ", theme::muted_style()),
+            Span::styled("x", theme::key_style()),
+            Span::styled("·changes  ", theme::muted_style()),
+            Span::styled("/", theme::key_style()),
+            Span::styled("·pipeline  ", theme::muted_style()),
+            Span::styled("q", theme::key_style()),
+            Span::styled("·quit", theme::muted_style()),
+        ]))
+    }
     .block(
         Block::default()
             .borders(Borders::ALL)
