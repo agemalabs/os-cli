@@ -1,4 +1,4 @@
-//! Project view — files, tasks, phase, keybindings.
+//! Project view — files, tasks, decisions, phase, keybindings.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -17,6 +17,7 @@ pub struct ProjectData {
     pub phase: String,
     pub files: Vec<FileEntry>,
     pub tasks: Vec<TaskEntry>,
+    pub decisions: Vec<DecisionEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,16 @@ pub struct TaskEntry {
     pub assigned_to: Option<String>,
 }
 
+/// Decision entry for display.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DecisionEntry {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub resolution: Option<String>,
+}
+
 /// Fetch project data from the API.
 pub async fn fetch(
     client: &crate::api_client::ApiClient,
@@ -42,6 +53,8 @@ pub async fn fetch(
     let proj: serde_json::Value = client.get(&format!("/projects/{}", slug)).await?;
     let files_resp: serde_json::Value = client.get(&format!("/projects/{}/files", slug)).await?;
     let tasks_resp: serde_json::Value = client.get(&format!("/projects/{}/tasks", slug)).await?;
+    let decisions_resp: serde_json::Value =
+        client.get(&format!("/projects/{}/decisions", slug)).await?;
 
     let files = files_resp["data"]
         .as_array()
@@ -68,12 +81,27 @@ pub async fn fetch(
         })
         .unwrap_or_default();
 
+    let decisions = decisions_resp["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|d| DecisionEntry {
+                    id: d["id"].as_str().unwrap_or("").to_string(),
+                    title: d["title"].as_str().unwrap_or("?").to_string(),
+                    status: d["status"].as_str().unwrap_or("open").to_string(),
+                    resolution: d["resolution"].as_str().map(|s| s.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ProjectData {
         name: proj["data"]["name"].as_str().unwrap_or("?").to_string(),
         description: proj["data"]["description"].as_str().map(|s| s.to_string()),
         phase: proj["data"]["phase"].as_str().unwrap_or("?").to_string(),
         files,
         tasks,
+        decisions,
     })
 }
 
@@ -121,21 +149,26 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
     );
     frame.render_widget(header, chunks[0]);
 
-    // Content — files on left, tasks on right
+    // Content — files on left, tasks+decisions on right
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(chunks[1]);
 
     render_files(frame, content_chunks[0], &data.files);
-    render_tasks(frame, content_chunks[1], &data.tasks);
+    render_tasks_and_decisions(frame, content_chunks[1], &data.tasks, &data.decisions);
 
     // Input bar (when active)
     if has_input && chunks.len() > 3 {
         let label = match &app.input_mode {
             Some(crate::tui::app::InputMode::PushFile { .. }) => "File path",
             Some(crate::tui::app::InputMode::NewTask { .. }) => "Task title",
+            Some(crate::tui::app::InputMode::NewDecision { .. }) => "Decision title",
             Some(crate::tui::app::InputMode::NewLead) => "Company name",
+            Some(crate::tui::app::InputMode::NewProject) => "Project (name:slug)",
+            Some(crate::tui::app::InputMode::AddLeadNote { .. }) => "Note",
+            Some(crate::tui::app::InputMode::AddLeadContact { .. }) => "Contact (name:email)",
+            Some(crate::tui::app::InputMode::ChatInput { .. }) => "Question",
             None => "",
         };
         let input = Paragraph::new(Line::from(vec![
@@ -167,6 +200,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Span::styled("·decision  ", theme::muted_style()),
             Span::styled("p", theme::key_style()),
             Span::styled("·push file  ", theme::muted_style()),
+            Span::styled("c", theme::key_style()),
+            Span::styled("·chat  ", theme::muted_style()),
             Span::styled("b", theme::key_style()),
             Span::styled("·back", theme::muted_style()),
         ]))
@@ -208,7 +243,12 @@ fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
     frame.render_widget(widget, area);
 }
 
-fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
+fn render_tasks_and_decisions(
+    frame: &mut Frame,
+    area: Rect,
+    tasks: &[TaskEntry],
+    decisions: &[DecisionEntry],
+) {
     let mut lines = vec![
         Line::from(Span::styled("  TASKS", theme::title_style())),
         Line::from(Span::styled(
@@ -235,6 +275,32 @@ fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(&t.title, style),
+            ]));
+        }
+    }
+
+    // Decisions section
+    let open_decisions: Vec<&DecisionEntry> =
+        decisions.iter().filter(|d| d.status == "open").collect();
+
+    if !open_decisions.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  DECISIONS",
+            theme::title_style(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ──────────────────────────────────",
+            theme::muted_style(),
+        )));
+
+        for d in open_decisions {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} ", theme::MARKER_DECISION),
+                    theme::warning_style(),
+                ),
+                Span::styled(&d.title, theme::warning_style()),
             ]));
         }
     }
