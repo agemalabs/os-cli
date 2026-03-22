@@ -1,4 +1,4 @@
-//! Pipeline view — leads list with stage, value, next action.
+//! Pipeline view — leads list with stage, value, next action, search/filter.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -13,6 +13,12 @@ pub struct PipelineState {
     pub leads: Vec<LeadSummary>,
     pub selected: usize,
     pub loaded: bool,
+    /// Active filter text (when `/` is pressed).
+    pub filter: Option<String>,
+    /// Whether we are in filter input mode.
+    pub filtering: bool,
+    /// Confirm delete state.
+    pub confirm_delete: bool,
 }
 
 /// Lead summary for list display.
@@ -26,6 +32,22 @@ pub struct LeadSummary {
     pub stage: String,
     pub next_action: Option<String>,
     pub next_action_date: Option<String>,
+}
+
+impl PipelineState {
+    /// Get leads filtered by the current filter text.
+    pub fn filtered_leads(&self) -> Vec<&LeadSummary> {
+        match &self.filter {
+            Some(f) if !f.is_empty() => {
+                let f_lower = f.to_lowercase();
+                self.leads
+                    .iter()
+                    .filter(|l| l.company_name.to_lowercase().contains(&f_lower))
+                    .collect()
+            }
+            _ => self.leads.iter().collect(),
+        }
+    }
 }
 
 /// Fetch leads from the API.
@@ -54,18 +76,30 @@ pub async fn fetch(client: &crate::api_client::ApiClient) -> anyhow::Result<Vec<
 
 /// Render the pipeline view.
 pub fn render(frame: &mut Frame, area: Rect, state: &PipelineState) {
+    let has_filter = state.filtering;
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(8),
-            Constraint::Length(3),
-        ])
+        .constraints(if has_filter {
+            vec![
+                Constraint::Length(3),
+                Constraint::Min(6),
+                Constraint::Length(3),
+                Constraint::Length(3),
+            ]
+        } else {
+            vec![
+                Constraint::Length(3),
+                Constraint::Min(8),
+                Constraint::Length(3),
+                Constraint::Length(0),
+            ]
+        })
         .split(area);
 
     // Header
-    let total: f64 = state
-        .leads
+    let filtered = state.filtered_leads();
+    let total: f64 = filtered
         .iter()
         .filter_map(|l| {
             l.estimated_value
@@ -85,7 +119,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &PipelineState) {
         Span::styled(
             format!(
                 "  {} leads  ${:.0}K total",
-                state.leads.len(),
+                filtered.len(),
                 total / 1000.0
             ),
             theme::muted_style(),
@@ -102,25 +136,57 @@ pub fn render(frame: &mut Frame, area: Rect, state: &PipelineState) {
     render_leads(frame, chunks[1], state);
 
     // Footer
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Enter", theme::key_style()),
-        Span::styled("·open  ", theme::muted_style()),
-        Span::styled("n", theme::key_style()),
-        Span::styled("·new lead  ", theme::muted_style()),
-        Span::styled("j/k", theme::key_style()),
-        Span::styled("·navigate  ", theme::muted_style()),
-        Span::styled("b", theme::key_style()),
-        Span::styled("·back", theme::muted_style()),
-    ]))
+    let footer = if state.confirm_delete {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Delete this lead? ", theme::danger_style()),
+            Span::styled("y", theme::key_style()),
+            Span::styled("·yes  ", theme::muted_style()),
+            Span::styled("n", theme::key_style()),
+            Span::styled("·no", theme::muted_style()),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Enter", theme::key_style()),
+            Span::styled("·open  ", theme::muted_style()),
+            Span::styled("n", theme::key_style()),
+            Span::styled("·new lead  ", theme::muted_style()),
+            Span::styled("d", theme::key_style()),
+            Span::styled("·delete  ", theme::muted_style()),
+            Span::styled("/", theme::key_style()),
+            Span::styled("·filter  ", theme::muted_style()),
+            Span::styled("j/k", theme::key_style()),
+            Span::styled("·navigate  ", theme::muted_style()),
+            Span::styled("b", theme::key_style()),
+            Span::styled("·back", theme::muted_style()),
+        ]))
+    }
     .block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::muted_style()),
     );
     frame.render_widget(footer, chunks[2]);
+
+    // Filter input bar
+    if has_filter && chunks.len() > 3 {
+        let filter_text = state.filter.as_deref().unwrap_or("");
+        let input = Paragraph::new(Line::from(vec![
+            Span::styled("  Filter > ", theme::active_style()),
+            Span::styled(filter_text, theme::label_style()),
+            Span::styled("█", theme::active_style()),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme::active_style()),
+        );
+        frame.render_widget(input, chunks[3]);
+    }
 }
 
 fn render_leads(frame: &mut Frame, area: Rect, state: &PipelineState) {
+    let filtered = state.filtered_leads();
+
     let mut lines = vec![
         Line::from(vec![
             Span::styled("  Company", theme::muted_style()),
@@ -142,10 +208,13 @@ fn render_leads(frame: &mut Frame, area: Rect, state: &PipelineState) {
             "  Loading...",
             theme::muted_style(),
         )));
-    } else if state.leads.is_empty() {
-        lines.push(Line::from(Span::styled("  No leads", theme::muted_style())));
+    } else if filtered.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No leads",
+            theme::muted_style(),
+        )));
     } else {
-        for (i, lead) in state.leads.iter().enumerate() {
+        for (i, lead) in filtered.iter().enumerate() {
             let is_selected = i == state.selected;
             let marker = match lead.stage.as_str() {
                 "closed_won" => theme::MARKER_DONE,
