@@ -192,17 +192,45 @@ fn render_right_panel(frame: &mut Frame, area: Rect, app: &App) {
             "  ─────────────────────────────",
             theme::muted_style(),
         )));
+
+        // Total engagement value
+        if fin.total_value > 0.0 {
+            lines.push(Line::from(vec![
+                Span::styled("  Total Value   ", theme::muted_style()),
+                Span::styled(
+                    format_currency(fin.total_value),
+                    theme::label_style(),
+                ),
+            ]));
+        }
+
+        // Invoiced with progress bar
+        let invoiced_bar = progress_bar(fin.total_invoiced, fin.total_value, 12);
         lines.push(Line::from(vec![
-            Span::styled("  Invoiced    ", theme::muted_style()),
+            Span::styled("  Invoiced      ", theme::muted_style()),
             Span::styled(
-                format!("${:.0}K", fin.total_invoiced / 1000.0),
+                format!("{:<8}", format_currency(fin.total_invoiced)),
                 theme::label_style(),
             ),
+            Span::styled(invoiced_bar, theme::active_style()),
         ]));
+
+        // Paid with progress bar
+        let paid_bar = progress_bar(fin.total_paid, fin.total_value, 12);
         lines.push(Line::from(vec![
-            Span::styled("  Outstanding ", theme::muted_style()),
+            Span::styled("  Paid          ", theme::muted_style()),
             Span::styled(
-                format!("${:.0}K", fin.total_outstanding / 1000.0),
+                format!("{:<8}", format_currency(fin.total_paid)),
+                theme::success_style(),
+            ),
+            Span::styled(paid_bar, theme::success_style()),
+        ]));
+
+        // Outstanding
+        lines.push(Line::from(vec![
+            Span::styled("  Outstanding   ", theme::muted_style()),
+            Span::styled(
+                format_currency(fin.total_outstanding),
                 if fin.total_outstanding > 0.0 {
                     theme::warning_style()
                 } else {
@@ -210,6 +238,7 @@ fn render_right_panel(frame: &mut Frame, area: Rect, app: &App) {
                 },
             ),
         ]));
+
         lines.push(Line::from(""));
     }
 
@@ -314,4 +343,30 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// Format a dollar amount as "$XK" or "$X.XM".
+fn format_currency(amount: f64) -> String {
+    if amount >= 1_000_000.0 {
+        format!("${:.1}M", amount / 1_000_000.0)
+    } else if amount >= 1_000.0 {
+        format!("${:.0}K", amount / 1_000.0)
+    } else {
+        format!("${:.0}", amount)
+    }
+}
+
+/// Build a text progress bar: filled/total proportion mapped to `width` chars.
+fn progress_bar(value: f64, max: f64, width: usize) -> String {
+    if max <= 0.0 {
+        return " ".repeat(width);
+    }
+    let ratio = (value / max).clamp(0.0, 1.0);
+    let filled = (ratio * width as f64).round() as usize;
+    let empty = width.saturating_sub(filled);
+    format!(
+        "{}{}",
+        "\u{2588}".repeat(filled),
+        "\u{2591}".repeat(empty)
+    )
 }
