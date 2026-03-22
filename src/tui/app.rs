@@ -6,6 +6,7 @@ use crossterm::event::KeyEvent;
 use crate::api_client::ApiClient;
 use crate::tui::data::DashboardData;
 use crate::tui::views::changes::ChangesState;
+use crate::tui::views::chat::ChatState;
 use crate::tui::views::identity::IdentityMode;
 use crate::tui::views::lead::LeadDetail;
 use crate::tui::views::pipeline::PipelineState;
@@ -16,10 +17,16 @@ use crate::tui::views::status::StatusData;
 
 /// Text input mode — what we're capturing input for.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum InputMode {
     PushFile { project_slug: String },
     NewTask { project_slug: String },
+    NewDecision { project_slug: String },
     NewLead,
+    NewProject,
+    AddLeadNote { lead_id: String },
+    AddLeadContact { lead_id: String },
+    ChatInput { project_slug: Option<String>, lead_id: Option<String> },
 }
 
 /// Which view is currently active.
@@ -35,6 +42,7 @@ pub enum View {
     LeadDetail { id: String },
     Identity,
     Skills,
+    Chat,
 }
 
 /// Top-level application state.
@@ -56,6 +64,7 @@ pub struct App {
     pub input_buffer: String,
     pub identity_mode: IdentityMode,
     pub skills: SkillsState,
+    pub chat: ChatState,
     pub selected_index: usize,
     pub loading: bool,
     pub error: Option<String>,
@@ -88,6 +97,7 @@ impl App {
             input_buffer: String::new(),
             identity_mode: IdentityMode::default(),
             skills: SkillsState::default(),
+            chat: ChatState::default(),
             selected_index: 0,
             loading: true,
             error: None,
