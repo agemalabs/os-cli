@@ -15,6 +15,8 @@ pub struct ProjectData {
     pub name: String,
     pub description: Option<String>,
     pub phase: String,
+    pub client_name: Option<String>,
+    pub engagement_value: Option<f64>,
     pub files: Vec<FileEntry>,
     pub tasks: Vec<TaskEntry>,
     pub decisions: Vec<DecisionEntry>,
@@ -99,6 +101,8 @@ pub async fn fetch(
         name: proj["data"]["name"].as_str().unwrap_or("?").to_string(),
         description: proj["data"]["description"].as_str().map(|s| s.to_string()),
         phase: proj["data"]["phase"].as_str().unwrap_or("?").to_string(),
+        client_name: proj["data"]["client_name"].as_str().map(|s| s.to_string()),
+        engagement_value: proj["data"]["engagement_value"].as_f64(),
         files,
         tasks,
         decisions,
@@ -112,18 +116,24 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
 
     let has_input = app.input_mode.is_some();
 
+    let header_height = if data.client_name.is_some() || data.engagement_value.is_some() {
+        4
+    } else {
+        3
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if has_input {
             vec![
-                Constraint::Length(3),
+                Constraint::Length(header_height),
                 Constraint::Min(6),
                 Constraint::Length(3),
                 Constraint::Length(3),
             ]
         } else {
             vec![
-                Constraint::Length(3),
+                Constraint::Length(header_height),
                 Constraint::Min(8),
                 Constraint::Length(3),
                 Constraint::Length(0),
@@ -131,18 +141,41 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         })
         .split(area);
 
-    // Header
+    // Header — two lines: title + client/value info
     let phase = format_phase(&data.phase);
-    let left = format!(" PROJECT · {} · {}", data.name, phase);
     let right = format!("{} ", time_str);
-    let pad_len = (area.width as usize).saturating_sub(left.len() + right.len() + 2);
-    let header = Paragraph::new(Line::from(vec![
+
+    let mut header_lines = Vec::new();
+
+    // Line 1: PROJECT · Name · Phase
+    let title_left = format!(" PROJECT · {} · {}", data.name, phase);
+    let pad1 = (area.width as usize).saturating_sub(title_left.len() + right.len() + 2);
+    header_lines.push(Line::from(vec![
         Span::styled(" PROJECT ", theme::title_style()),
         Span::styled(format!("· {} · {}", data.name, phase), theme::muted_style()),
-        Span::raw(" ".repeat(pad_len)),
-        Span::styled(right, theme::muted_style()),
-    ]))
-    .block(
+        Span::raw(" ".repeat(pad1)),
+        Span::styled(&right, theme::muted_style()),
+    ]));
+
+    // Line 2: Client + Value (if available)
+    let mut detail_spans = vec![Span::raw("  ")];
+    if let Some(ref client) = data.client_name {
+        detail_spans.push(Span::styled("Client: ", theme::muted_style()));
+        detail_spans.push(Span::styled(client.as_str(), theme::label_style()));
+        detail_spans.push(Span::raw("    "));
+    }
+    if let Some(value) = data.engagement_value {
+        detail_spans.push(Span::styled("Value: ", theme::muted_style()));
+        detail_spans.push(Span::styled(
+            format!("${:.0}K", value / 1000.0),
+            theme::label_style(),
+        ));
+    }
+    if detail_spans.len() > 1 {
+        header_lines.push(Line::from(detail_spans));
+    }
+
+    let header = Paragraph::new(header_lines).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::muted_style()),
