@@ -217,6 +217,17 @@ async fn handle_input_mode(app: &mut App, key: &crossterm::event::KeyEvent) {
                             }
                         }
                     }
+                    Some(app::InputMode::LinkRepo { project_slug }) => {
+                        let _ = app
+                            .client
+                            .link_repo(&project_slug, &buffer, None)
+                            .await;
+                        if let Ok(pd) =
+                            views::project::fetch(&app.client, &project_slug).await
+                        {
+                            app.project_data = Some(pd);
+                        }
+                    }
                     Some(app::InputMode::NewTask { project_slug }) => {
                         let body = serde_json::json!({ "title": buffer });
                         let _ = app
@@ -793,6 +804,12 @@ fn handle_project_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
             }
             KeyCode::Char('d') => {
                 app.input_mode = Some(app::InputMode::NewDecision {
+                    project_slug: slug,
+                });
+                app.input_buffer.clear();
+            }
+            KeyCode::Char('r') => {
+                app.input_mode = Some(app::InputMode::LinkRepo {
                     project_slug: slug,
                 });
                 app.input_buffer.clear();

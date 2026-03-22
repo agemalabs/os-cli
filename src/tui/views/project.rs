@@ -20,6 +20,16 @@ pub struct ProjectData {
     pub files: Vec<FileEntry>,
     pub tasks: Vec<TaskEntry>,
     pub decisions: Vec<DecisionEntry>,
+    pub repos: Vec<RepoEntry>,
+}
+
+/// Linked GitHub repo.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct RepoEntry {
+    pub id: String,
+    pub github_repo: String,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +67,10 @@ pub async fn fetch(
     let tasks_resp: serde_json::Value = client.get(&format!("/projects/{}/tasks", slug)).await?;
     let decisions_resp: serde_json::Value =
         client.get(&format!("/projects/{}/decisions", slug)).await?;
+    let repos_resp: serde_json::Value = client
+        .list_repos(slug)
+        .await
+        .unwrap_or(serde_json::json!({ "data": [] }));
 
     let files = files_resp["data"]
         .as_array()
@@ -97,6 +111,19 @@ pub async fn fetch(
         })
         .unwrap_or_default();
 
+    let repos = repos_resp["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|r| RepoEntry {
+                    id: r["id"].as_str().unwrap_or("").to_string(),
+                    github_repo: r["github_repo"].as_str().unwrap_or("?").to_string(),
+                    label: r["label"].as_str().map(|s| s.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ProjectData {
         name: proj["data"]["name"].as_str().unwrap_or("?").to_string(),
         description: proj["data"]["description"].as_str().map(|s| s.to_string()),
@@ -106,6 +133,7 @@ pub async fn fetch(
         files,
         tasks,
         decisions,
+        repos,
     })
 }
 
@@ -188,7 +216,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(chunks[1]);
 
-    render_files(frame, content_chunks[0], &data.files);
+    render_files_and_repos(frame, content_chunks[0], &data.files, &data.repos);
     render_tasks_and_decisions(frame, content_chunks[1], &data.tasks, &data.decisions);
 
     // Input bar (when active)
@@ -197,6 +225,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Some(crate::tui::app::InputMode::PushFile { .. }) => "File path",
             Some(crate::tui::app::InputMode::NewTask { .. }) => "Task title",
             Some(crate::tui::app::InputMode::NewDecision { .. }) => "Decision title",
+            Some(crate::tui::app::InputMode::LinkRepo { .. }) => "Repo (owner/repo)",
             Some(crate::tui::app::InputMode::NewLead) => "Company name",
             Some(crate::tui::app::InputMode::NewProject) => "Project (name:slug)",
             Some(crate::tui::app::InputMode::AddLeadNote { .. }) => "Note",
@@ -233,6 +262,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Span::styled("·decision  ", theme::muted_style()),
             Span::styled("p", theme::key_style()),
             Span::styled("·push file  ", theme::muted_style()),
+            Span::styled("r", theme::key_style()),
+            Span::styled("·repo  ", theme::muted_style()),
             Span::styled("c", theme::key_style()),
             Span::styled("·chat  ", theme::muted_style()),
             Span::styled("b", theme::key_style()),
@@ -247,7 +278,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
     frame.render_widget(footer, chunks[2]);
 }
 
-fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
+fn render_files_and_repos(
+    frame: &mut Frame,
+    area: Rect,
+    files: &[FileEntry],
+    repos: &[RepoEntry],
+) {
     let mut lines = vec![
         Line::from(Span::styled("  FILES", theme::title_style())),
         Line::from(Span::styled(
@@ -264,6 +300,33 @@ fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
                 Span::styled("  ", theme::label_style()),
                 Span::styled(format!("{:<20}", f.slug), theme::label_style()),
                 Span::styled(&f.category, theme::muted_style()),
+            ]));
+        }
+    }
+
+    // Repos section
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  REPOS", theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "  ──────────────────────────",
+        theme::muted_style(),
+    )));
+
+    if repos.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No repos linked",
+            theme::muted_style(),
+        )));
+    } else {
+        for r in repos {
+            let display = if let Some(ref label) = r.label {
+                format!("{} ({})", r.github_repo, label)
+            } else {
+                r.github_repo.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", theme::label_style()),
+                Span::styled(display, theme::active_style()),
             ]));
         }
     }

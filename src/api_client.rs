@@ -240,6 +240,27 @@ impl ApiClient {
         self.post("/projects", &body).await
     }
 
+    /// `POST /projects/:slug/repos` — link a GitHub repo to a project.
+    pub async fn link_repo(
+        &self,
+        project_slug: &str,
+        github_repo: &str,
+        label: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let mut body = serde_json::json!({ "github_repo": github_repo });
+        if let Some(l) = label {
+            body["label"] = serde_json::json!(l);
+        }
+        self.post(&format!("/projects/{}/repos", project_slug), &body)
+            .await
+    }
+
+    /// `GET /projects/:slug/repos` — list linked repos for a project.
+    pub async fn list_repos(&self, project_slug: &str) -> Result<serde_json::Value> {
+        self.get(&format!("/projects/{}/repos", project_slug))
+            .await
+    }
+
     /// Check if the client has a token configured.
     #[allow(dead_code)]
     pub fn is_authenticated(&self) -> bool {

@@ -22,6 +22,7 @@ pub enum InputMode {
     PushFile { project_slug: String },
     NewTask { project_slug: String },
     NewDecision { project_slug: String },
+    LinkRepo { project_slug: String },
     NewLead,
     NewProject,
     AddLeadNote { lead_id: String },
