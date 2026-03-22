@@ -1,4 +1,4 @@
-//! Dashboard view — projects, pending changes, keybindings.
+//! Dashboard view — projects, pending changes, activity, keybindings.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -42,7 +42,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     // ---- Content ----
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[1]);
 
     render_projects(frame, content_chunks[0], app);
@@ -91,6 +91,15 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("·open  ", theme::muted_style()),
             Span::styled("n", theme::key_style()),
             Span::styled("·new project  ", theme::muted_style()),
+            Span::styled("w", theme::key_style()),
+            Span::styled(
+                if app.activity_days == 1 {
+                    "·week  "
+                } else {
+                    "·today  "
+                },
+                theme::muted_style(),
+            ),
             Span::styled("l", theme::key_style()),
             Span::styled("·status  ", theme::muted_style()),
             Span::styled("s", theme::key_style()),
@@ -167,7 +176,7 @@ fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(widget, area);
 }
 
-/// Render the right panel — financials + pending changes.
+/// Render the right panel — financials + pending changes + activity.
 fn render_right_panel(frame: &mut Frame, area: Rect, app: &App) {
     let fin = &app.dashboard.financials;
     let has_financials = fin.total_value > 0.0 || fin.total_invoiced > 0.0;
@@ -231,6 +240,56 @@ fn render_right_panel(frame: &mut Frame, area: Rect, app: &App) {
         ]));
     } else {
         lines.push(Line::from(Span::styled("  None", theme::muted_style())));
+    }
+
+    lines.push(Line::from(""));
+
+    // Team activity section
+    let period = if app.activity_days == 1 {
+        "Today"
+    } else {
+        "This Week"
+    };
+    lines.push(Line::from(Span::styled(
+        format!("  TEAM ACTIVITY · {}", period),
+        theme::title_style(),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────",
+        theme::muted_style(),
+    )));
+
+    if app.dashboard.activity.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No activity",
+            theme::muted_style(),
+        )));
+    } else {
+        // Show up to 15 entries to fit in the panel
+        let max_entries = 15.min(area.height.saturating_sub(lines.len() as u16 + 1) as usize);
+        for entry in app.dashboard.activity.iter().take(max_entries) {
+            let source_tag = match entry.source.as_str() {
+                "github" => "[gh]",
+                "email" => "[em]",
+                "calendar" => "[cal]",
+                "meeting" => "[mtg]",
+                _ => "[os]",
+            };
+
+            let source_style = match entry.source.as_str() {
+                "github" => theme::active_style(),
+                "email" | "calendar" | "meeting" => theme::warning_style(),
+                _ => theme::muted_style(),
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", source_tag), source_style),
+                Span::styled(
+                    truncate(&entry.summary, 35),
+                    theme::label_style(),
+                ),
+            ]));
+        }
     }
 
     let widget = Paragraph::new(lines);

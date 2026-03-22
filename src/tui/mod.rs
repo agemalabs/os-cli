@@ -881,6 +881,19 @@ async fn handle_dashboard_keys(app: &mut App, key: &crossterm::event::KeyEvent) 
             }
             app.navigate(View::Pipeline);
         }
+        KeyCode::Char('w') => {
+            // Toggle activity between 1 day and 7 days
+            app.activity_days = if app.activity_days == 1 { 7 } else { 1 };
+            match data::fetch_activity(&app.client, app.activity_days).await {
+                Ok(activity) => {
+                    app.dashboard.activity = activity;
+                    app.dashboard.activity_days = app.activity_days;
+                }
+                Err(_) => {
+                    app.dashboard.activity.clear();
+                }
+            }
+        }
         KeyCode::Char('K') => {
             match views::skills::fetch(&app.client).await {
                 Ok(s) => {

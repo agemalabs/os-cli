@@ -68,6 +68,8 @@ pub struct App {
     pub selected_index: usize,
     pub loading: bool,
     pub error: Option<String>,
+    /// Activity toggle: 1 = today, 7 = week.
+    pub activity_days: u32,
 }
 
 impl App {
@@ -101,6 +103,7 @@ impl App {
             selected_index: 0,
             loading: true,
             error: None,
+            activity_days: 1,
         }
     }
 
