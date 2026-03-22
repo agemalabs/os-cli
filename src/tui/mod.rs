@@ -111,6 +111,80 @@ async fn main_loop(
 
         match events::poll(Duration::from_millis(250))? {
             events::AppEvent::Key(key) => {
+                // Input mode captures all typing
+                if app.input_mode.is_some() {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.input_mode = None;
+                            app.input_buffer.clear();
+                        }
+                        KeyCode::Backspace => {
+                            app.input_buffer.pop();
+                        }
+                        KeyCode::Enter => {
+                            let buffer = app.input_buffer.clone();
+                            let mode = app.input_mode.take();
+                            app.input_buffer.clear();
+
+                            if !buffer.is_empty() {
+                                match mode {
+                                    Some(app::InputMode::PushFile { project_slug }) => {
+                                        match views::project::push_file(
+                                            &app.client,
+                                            &project_slug,
+                                            &buffer,
+                                        )
+                                        .await
+                                        {
+                                            Ok(_msg) => {
+                                                // Reload project data
+                                                if let Ok(pd) = views::project::fetch(
+                                                    &app.client,
+                                                    &project_slug,
+                                                )
+                                                .await
+                                                {
+                                                    app.project_data = Some(pd);
+                                                }
+                                            }
+                                            Err(_e) => {}
+                                        }
+                                    }
+                                    Some(app::InputMode::NewTask { project_slug }) => {
+                                        let body = serde_json::json!({ "title": buffer });
+                                        let _ = app
+                                            .client
+                                            .post::<serde_json::Value>(
+                                                &format!("/projects/{}/tasks", project_slug),
+                                                &body,
+                                            )
+                                            .await;
+                                        // Reload project data
+                                        if let Ok(pd) =
+                                            views::project::fetch(&app.client, &project_slug).await
+                                        {
+                                            app.project_data = Some(pd);
+                                        }
+                                    }
+                                    Some(app::InputMode::NewLead) => {
+                                        let body = serde_json::json!({ "company_name": buffer });
+                                        let _ = app
+                                            .client
+                                            .post::<serde_json::Value>("/leads", &body)
+                                            .await;
+                                    }
+                                    None => {}
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            app.input_buffer.push(c);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 // Search view captures all typing — handle before global keys
                 if app.view == View::Search {
                     match key.code {
@@ -328,6 +402,25 @@ async fn main_loop(
                                 }
                                 app.navigate(View::LeadDetail { id });
                             }
+                        }
+                        KeyCode::Char('n') => {
+                            app.input_mode = Some(app::InputMode::NewLead);
+                            app.input_buffer.clear();
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let View::Project { slug } = &app.view {
+                    let slug = slug.clone();
+                    match key.code {
+                        KeyCode::Char('p') => {
+                            app.input_mode = Some(app::InputMode::PushFile { project_slug: slug });
+                            app.input_buffer.clear();
+                        }
+                        KeyCode::Char('t') => {
+                            app.input_mode = Some(app::InputMode::NewTask { project_slug: slug });
+                            app.input_buffer.clear();
                         }
                         _ => {}
                     }

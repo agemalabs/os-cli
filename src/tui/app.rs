@@ -14,6 +14,14 @@ use crate::tui::views::search::SearchState;
 use crate::tui::views::skills::SkillsState;
 use crate::tui::views::status::StatusData;
 
+/// Text input mode — what we're capturing input for.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputMode {
+    PushFile { project_slug: String },
+    NewTask { project_slug: String },
+    NewLead,
+}
+
 /// Which view is currently active.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -43,6 +51,9 @@ pub struct App {
     pub changes: ChangesState,
     pub pipeline: PipelineState,
     pub lead_detail: Option<LeadDetail>,
+    /// Active text input (file path, task title, etc).
+    pub input_mode: Option<InputMode>,
+    pub input_buffer: String,
     pub identity_mode: IdentityMode,
     pub skills: SkillsState,
     pub selected_index: usize,
@@ -73,6 +84,8 @@ impl App {
             changes: ChangesState::default(),
             pipeline: PipelineState::default(),
             lead_detail: None,
+            input_mode: None,
+            input_buffer: String::new(),
             identity_mode: IdentityMode::default(),
             skills: SkillsState::default(),
             selected_index: 0,
