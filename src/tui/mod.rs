@@ -79,7 +79,18 @@ async fn main_loop(
                 View::Status => {
                     let default = views::status::StatusData::default();
                     let sd = app.status_data.as_ref().unwrap_or(&default);
-                    views::status::render(frame, area, sd, &app.user_name);
+                    let input_active = matches!(
+                        &app.input_mode,
+                        Some(app::InputMode::ResolveDecision { .. })
+                    );
+                    views::status::render(
+                        frame,
+                        area,
+                        sd,
+                        &app.user_name,
+                        input_active,
+                        &app.input_buffer,
+                    );
                 }
                 View::Project { slug } => {
                     let default = views::project::ProjectData::default();
@@ -179,6 +190,7 @@ async fn main_loop(
                     View::Project { .. } => handle_project_keys(app, &key),
                     View::Dashboard => handle_dashboard_keys(app, &key).await,
                     View::Skills => handle_skills_keys(app, &key).await,
+                    View::Status => handle_status_keys(app, &key).await,
                     _ => {}
                 }
             }
@@ -303,6 +315,19 @@ async fn handle_input_mode(app: &mut App, key: &crossterm::event::KeyEvent) {
                             .await;
                         if let Ok(ld) = views::lead::fetch(&app.client, &lead_id).await {
                             app.lead_detail = Some(ld);
+                        }
+                    }
+                    Some(app::InputMode::ResolveDecision {
+                        project_slug,
+                        decision_id,
+                    }) => {
+                        let _ = app
+                            .client
+                            .resolve_decision(&project_slug, &decision_id, &buffer)
+                            .await;
+                        // Reload status
+                        if let Ok(sd) = views::status::fetch(&app.client).await {
+                            app.status_data = Some(sd);
                         }
                     }
                     Some(app::InputMode::ChatInput { project_slug, lead_id }) => {
@@ -927,6 +952,106 @@ async fn handle_dashboard_keys(app: &mut App, key: &crossterm::event::KeyEvent) 
                 }
             }
             app.navigate(View::Skills);
+        }
+        _ => {}
+    }
+}
+
+/// Handle status view key events.
+async fn handle_status_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
+    let sd = match &mut app.status_data {
+        Some(sd) => sd,
+        None => return,
+    };
+
+    match key.code {
+        // Navigation within section
+        KeyCode::Char('j') | KeyCode::Down => {
+            let max = match sd.selected_section {
+                views::status::StatusSection::Tasks => {
+                    (sd.overdue.len() + sd.tasks.len()).saturating_sub(1)
+                }
+                views::status::StatusSection::Decisions => {
+                    sd.decisions.len().saturating_sub(1)
+                }
+            };
+            if sd.selected_index < max {
+                sd.selected_index += 1;
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if sd.selected_index > 0 {
+                sd.selected_index -= 1;
+            }
+        }
+        // Tab to switch between Tasks and Decisions sections
+        KeyCode::Tab => {
+            sd.selected_section = match sd.selected_section {
+                views::status::StatusSection::Tasks => views::status::StatusSection::Decisions,
+                views::status::StatusSection::Decisions => views::status::StatusSection::Tasks,
+            };
+            sd.selected_index = 0;
+        }
+        // Enter on a task cycles status: open -> in_progress -> done
+        KeyCode::Enter => {
+            if sd.selected_section == views::status::StatusSection::Tasks {
+                let all_tasks: Vec<views::status::StatusTask> =
+                    sd.overdue.iter().chain(sd.tasks.iter()).cloned().collect();
+                if let Some(task) = all_tasks.get(sd.selected_index) {
+                    let new_status = match task.status.as_str() {
+                        "open" => "in_progress",
+                        "in_progress" => "done",
+                        _ => "open",
+                    };
+                    let task_id = task.id.clone();
+                    let project_slug = task.project_slug.clone();
+                    let updates = serde_json::json!({ "status": new_status });
+                    let _ = app
+                        .client
+                        .update_task(&project_slug, &task_id, &updates)
+                        .await;
+                    // Reload status
+                    if let Ok(mut new_sd) = views::status::fetch(&app.client).await {
+                        // Preserve selection state
+                        let prev_section = sd.selected_section.clone();
+                        let prev_index = sd.selected_index;
+                        new_sd.selected_section = prev_section;
+                        new_sd.selected_index = prev_index;
+                        // Clamp index
+                        let max = match new_sd.selected_section {
+                            views::status::StatusSection::Tasks => {
+                                (new_sd.overdue.len() + new_sd.tasks.len()).saturating_sub(1)
+                            }
+                            views::status::StatusSection::Decisions => {
+                                new_sd.decisions.len().saturating_sub(1)
+                            }
+                        };
+                        if new_sd.selected_index > max {
+                            new_sd.selected_index = max;
+                        }
+                        app.status_data = Some(new_sd);
+                    }
+                }
+            }
+        }
+        // 'r' to resolve a decision
+        KeyCode::Char('r') => {
+            if sd.selected_section == views::status::StatusSection::Decisions {
+                if let Some(decision) = sd.decisions.get(sd.selected_index) {
+                    let project_slug = decision.project.clone();
+                    let decision_id = decision.id.clone();
+                    app.input_mode = Some(app::InputMode::ResolveDecision {
+                        project_slug,
+                        decision_id,
+                    });
+                    app.input_buffer.clear();
+                }
+            }
+        }
+        // 'c' for chat from status
+        KeyCode::Char('c') => {
+            app.chat = views::chat::ChatState::new(None, None);
+            app.navigate(View::Chat);
         }
         _ => {}
     }

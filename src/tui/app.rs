@@ -28,6 +28,7 @@ pub enum InputMode {
     AddLeadNote { lead_id: String },
     AddLeadContact { lead_id: String },
     ChatInput { project_slug: Option<String>, lead_id: Option<String> },
+    ResolveDecision { project_slug: String, decision_id: String },
 }
 
 /// Which view is currently active.

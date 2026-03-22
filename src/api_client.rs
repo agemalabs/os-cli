@@ -210,8 +210,21 @@ impl ApiClient {
             .await
     }
 
+    /// PUT /projects/:slug/tasks/:id — update a task.
+    pub async fn update_task(
+        &self,
+        project_slug: &str,
+        task_id: &str,
+        updates: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.put(
+            &format!("/projects/{}/tasks/{}", project_slug, task_id),
+            updates,
+        )
+        .await
+    }
+
     /// PUT /projects/:slug/decisions/:id/resolve — resolve a decision.
-    #[allow(dead_code)]
     pub async fn resolve_decision(
         &self,
         project_slug: &str,

@@ -231,6 +231,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Some(crate::tui::app::InputMode::AddLeadNote { .. }) => "Note",
             Some(crate::tui::app::InputMode::AddLeadContact { .. }) => "Contact (name:email)",
             Some(crate::tui::app::InputMode::ChatInput { .. }) => "Question",
+            Some(crate::tui::app::InputMode::ResolveDecision { .. }) => "Resolution",
             None => "",
         };
         let input = Paragraph::new(Line::from(vec![
