@@ -34,25 +34,20 @@ pub struct ActivityEntry {
     pub created_at: String,
 }
 
-/// A single week of revenue data for the chart.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct RevenueWeek {
-    /// ISO date string for the Monday of this week (e.g. "2026-03-16").
-    pub week: String,
-    /// Revenue amount in dollars.
-    pub revenue: f64,
-    /// Whether this is a projected (future) week.
-    pub projected: bool,
-    /// Short label for x-axis display (e.g. "Jan", "Feb").
-    pub label: String,
-}
-
-/// Revenue chart data — 90 days trailing + 30 days projected.
+/// Revenue chart data — multi-series: paid, invoiced, and projected per week.
 #[derive(Debug, Clone, Default)]
 pub struct RevenueChart {
-    pub weeks: Vec<RevenueWeek>,
+    /// ISO date strings for each week's Monday.
+    pub week_labels: Vec<String>,
+    /// Paid revenue per week.
+    pub paid: Vec<f64>,
+    /// Invoiced (but unpaid) revenue per week.
+    pub invoiced: Vec<f64>,
+    /// Projected revenue per week (zero for historical, values for future).
+    pub projected: Vec<f64>,
+    /// Total revenue over the trailing 90 days (paid + invoiced).
     pub total_90d: f64,
+    /// Average weekly revenue over the trailing 90 days.
     pub avg_weekly: f64,
 }
 
@@ -163,29 +158,31 @@ pub async fn fetch_revenue_chart(client: &ApiClient) -> anyhow::Result<RevenueCh
     let total_90d = data["total_90d"].as_f64().unwrap_or(0.0);
     let avg_weekly = data["avg_weekly"].as_f64().unwrap_or(0.0);
 
-    let weeks = data["weeks"]
+    let week_labels: Vec<String> = data["weeks"]
         .as_array()
         .map(|arr| {
             arr.iter()
-                .map(|w| {
-                    let week_str = w["week"].as_str().unwrap_or("").to_string();
-                    // Parse month for label — show abbreviated month name
-                    let label = chrono::NaiveDate::parse_from_str(&week_str, "%Y-%m-%d")
-                        .map(|d| d.format("%b").to_string())
-                        .unwrap_or_default();
-                    RevenueWeek {
-                        week: week_str,
-                        revenue: w["revenue"].as_f64().unwrap_or(0.0),
-                        projected: w["projected"].as_bool().unwrap_or(false),
-                        label,
-                    }
-                })
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect()
         })
         .unwrap_or_default();
 
+    let parse_series = |key: &str| -> Vec<f64> {
+        data[key]
+            .as_array()
+            .map(|arr| arr.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect())
+            .unwrap_or_default()
+    };
+
+    let paid = parse_series("paid");
+    let invoiced = parse_series("invoiced");
+    let projected = parse_series("projected");
+
     Ok(RevenueChart {
-        weeks,
+        week_labels,
+        paid,
+        invoiced,
+        projected,
         total_90d,
         avg_weekly,
     })
