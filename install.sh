@@ -4,8 +4,6 @@ set -e
 REPO="agemalabs/os-cli"
 BINARY_NAME="os-aarch64-apple-darwin"
 INSTALL_DIR="$HOME/.local/bin"
-CONFIG_DIR="$HOME/.config/os"
-CONFIG_FILE="$CONFIG_DIR/config.toml"
 
 echo "Installing OS CLI..."
 echo ""
@@ -24,78 +22,26 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 
-# Check for python3 (used for JSON parsing)
-if ! command -v python3 &> /dev/null; then
-    echo "Error: python3 is required for installation."
-    echo "It should be pre-installed on macOS. Check your system."
-    exit 1
-fi
-
-# Get GitHub token
-GITHUB_TOKEN=""
-if [ -f "$CONFIG_FILE" ]; then
-    GITHUB_TOKEN=$(grep -E '^github_token' "$CONFIG_FILE" 2>/dev/null | sed 's/.*= *"\(.*\)"/\1/' || true)
-fi
-
-if [ -z "$GITHUB_TOKEN" ]; then
-    echo "A GitHub Personal Access Token is required to download from the private repo."
-    echo "Create one at: https://github.com/settings/tokens"
-    echo "Required scope: repo"
-    echo ""
-    printf "GitHub token: "
-    read -r GITHUB_TOKEN < /dev/tty
-
-    if [ -z "$GITHUB_TOKEN" ]; then
-        echo "Error: No token provided."
-        exit 1
-    fi
-fi
-
 # Fetch latest release
 echo "Fetching latest release..."
 RELEASE_JSON=$(curl -sf \
-    -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github+json" \
     -H "User-Agent: os-cli-installer" \
     "https://api.github.com/repos/$REPO/releases/latest") || {
-    echo "Error: Failed to fetch release. Check your GitHub token."
+    echo "Error: Failed to fetch release."
     exit 1
 }
 
 TAG=$(echo "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"\(.*\)"/\1/')
 echo "Latest version: $TAG"
 
-# Get asset download URLs (use API URLs, not browser URLs)
-BINARY_ASSET_URL=$(echo "$RELEASE_JSON" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for asset in data.get('assets', []):
-    if asset['name'] == '$BINARY_NAME':
-        print(asset['url'])
-        break
-")
-
-CHECKSUM_ASSET_URL=$(echo "$RELEASE_JSON" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for asset in data.get('assets', []):
-    if asset['name'] == 'checksums.txt':
-        print(asset['url'])
-        break
-")
-
-if [ -z "$BINARY_ASSET_URL" ] || [ -z "$CHECKSUM_ASSET_URL" ]; then
-    echo "Error: Could not find binary or checksum assets in release."
-    exit 1
-fi
+# Download binary directly from release assets
+DOWNLOAD_URL="https://github.com/$REPO/releases/download/$TAG/$BINARY_NAME"
+CHECKSUM_URL="https://github.com/$REPO/releases/download/$TAG/checksums.txt"
 
 # Download checksum file
 echo "Downloading checksum..."
-CHECKSUMS=$(curl -sfL \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/octet-stream" \
-    -H "User-Agent: os-cli-installer" \
-    "$CHECKSUM_ASSET_URL") || {
+CHECKSUMS=$(curl -sfL "$CHECKSUM_URL") || {
     echo "Error: Failed to download checksums."
     exit 1
 }
@@ -103,12 +49,7 @@ CHECKSUMS=$(curl -sfL \
 # Download binary
 echo "Downloading binary..."
 TMPFILE=$(mktemp)
-curl -sfL \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/octet-stream" \
-    -H "User-Agent: os-cli-installer" \
-    "$BINARY_ASSET_URL" \
-    -o "$TMPFILE" || {
+curl -sfL "$DOWNLOAD_URL" -o "$TMPFILE" || {
     echo "Error: Failed to download binary."
     rm -f "$TMPFILE"
     exit 1
@@ -150,23 +91,6 @@ if ! echo "$PATH" | tr ':' '\n' | grep -q "^$HOME/.local/bin$"; then
         echo "Added ~/.local/bin to PATH in .zshrc"
     fi
 fi
-
-# Save GitHub token to config
-mkdir -p "$CONFIG_DIR"
-if [ -f "$CONFIG_FILE" ]; then
-    # Add github_token if not present
-    if ! grep -q 'github_token' "$CONFIG_FILE"; then
-        echo "github_token = \"$GITHUB_TOKEN\"" >> "$CONFIG_FILE"
-    fi
-else
-    cat > "$CONFIG_FILE" <<CONF
-api_url = "https://api.os.agemalabs.com"
-token = ""
-default_org = "agema-labs"
-github_token = "$GITHUB_TOKEN"
-CONF
-fi
-chmod 600 "$CONFIG_FILE"
 
 echo ""
 echo "OS CLI $TAG installed successfully."

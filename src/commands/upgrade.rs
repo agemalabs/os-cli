@@ -38,17 +38,7 @@ fn verify_checksum(file_bytes: &[u8], checksums_content: &str, filename: &str) -
 }
 
 /// Run the upgrade command.
-pub async fn run(config: &crate::config::Config) -> Result<()> {
-    let github_token = config
-        .github_token
-        .as_deref()
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No GitHub token configured. Run the install script or add github_token to ~/.config/os/config.toml"
-            )
-        })?;
-
+pub async fn run() -> Result<()> {
     let current_version =
         Version::parse(env!("CARGO_PKG_VERSION")).context("Failed to parse current version")?;
 
@@ -62,13 +52,12 @@ pub async fn run(config: &crate::config::Config) -> Result<()> {
     );
     let release_resp: serde_json::Value = http
         .get(&release_url)
-        .header("Authorization", format!("token {github_token}"))
         .header("User-Agent", "os-cli")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await?
         .error_for_status()
-        .context("Failed to fetch latest release — check your GitHub token")?
+        .context("Failed to fetch latest release")?
         .json()
         .await?;
 
@@ -83,35 +72,13 @@ pub async fn run(config: &crate::config::Config) -> Result<()> {
         return Ok(());
     }
 
-    // Find binary and checksum assets
-    let assets = release_resp["assets"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("No assets in release"))?;
-
-    let binary_asset = assets
-        .iter()
-        .find(|a| a["name"].as_str() == Some(BINARY_NAME))
-        .ok_or_else(|| anyhow::anyhow!("No {BINARY_NAME} asset in release"))?;
-
-    let checksum_asset = assets
-        .iter()
-        .find(|a| a["name"].as_str() == Some("checksums.txt"))
-        .ok_or_else(|| anyhow::anyhow!("No checksums.txt asset in release"))?;
-
-    let binary_url = binary_asset["url"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No URL for binary asset"))?;
-
-    let checksum_url = checksum_asset["url"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No URL for checksum asset"))?;
-
     // Download checksum file
+    let checksum_url = format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/{tag_name}/checksums.txt"
+    );
     let checksums_content = http
-        .get(checksum_url)
-        .header("Authorization", format!("token {github_token}"))
+        .get(&checksum_url)
         .header("User-Agent", "os-cli")
-        .header("Accept", "application/octet-stream")
         .send()
         .await?
         .error_for_status()?
@@ -122,11 +89,12 @@ pub async fn run(config: &crate::config::Config) -> Result<()> {
     println!(
         "Upgrading os v{current_version} → v{latest_version}"
     );
+    let binary_url = format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/{tag_name}/{BINARY_NAME}"
+    );
     let binary_bytes = http
-        .get(binary_url)
-        .header("Authorization", format!("token {github_token}"))
+        .get(&binary_url)
         .header("User-Agent", "os-cli")
-        .header("Accept", "application/octet-stream")
         .send()
         .await?
         .error_for_status()?
@@ -221,32 +189,5 @@ mod tests {
         let data = b"hello world";
         let checksums = "abc123  some-other-file\n";
         assert!(verify_checksum(data, checksums, "os-aarch64-apple-darwin").is_err());
-    }
-
-    #[tokio::test]
-    async fn run_fails_without_github_token() {
-        let config = crate::config::Config::default();
-        let result = run(&config).await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("GitHub token"),
-            "Expected error about GitHub token, got: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn run_fails_with_empty_github_token() {
-        let config = crate::config::Config {
-            github_token: Some(String::new()),
-            ..Default::default()
-        };
-        let result = run(&config).await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("GitHub token"),
-            "Expected error about GitHub token, got: {err_msg}"
-        );
     }
 }

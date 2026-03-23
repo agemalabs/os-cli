@@ -178,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
             commands::token::run(&client, regenerate).await?;
         }
         Some(Commands::Upgrade) => {
-            commands::upgrade::run(&cfg).await?;
+            commands::upgrade::run().await?;
         }
         None => {
             tui::run(client, cli.project).await?;
