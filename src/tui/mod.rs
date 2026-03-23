@@ -120,6 +120,14 @@ async fn main_loop(
                 View::Chat => {
                     views::chat::render(frame, area, &app.chat);
                 }
+                View::Clients => {
+                    views::clients::render_list(frame, area, &app.clients, &app.user_name);
+                }
+                View::ClientDetail { .. } => {
+                    let default = views::clients::ClientDetailData::default();
+                    let detail = app.clients.detail.as_ref().unwrap_or(&default);
+                    views::clients::render_detail(frame, area, detail, &app.user_name);
+                }
             }
         })?;
 
@@ -191,6 +199,8 @@ async fn main_loop(
                     View::Dashboard => handle_dashboard_keys(app, &key).await,
                     View::Skills => handle_skills_keys(app, &key).await,
                     View::Status => handle_status_keys(app, &key).await,
+                    View::Clients => handle_clients_keys(app, &key).await,
+                    View::ClientDetail { .. } => handle_client_detail_keys(app, &key).await,
                     _ => {}
                 }
             }
@@ -936,6 +946,23 @@ async fn handle_dashboard_keys(app: &mut App, key: &crossterm::event::KeyEvent) 
                 }
             }
         }
+        KeyCode::Char('C') => {
+            match views::clients::fetch_clients(&app.client).await {
+                Ok(c) => {
+                    app.clients = views::clients::ClientsState {
+                        clients: c,
+                        selected: 0,
+                        loaded: true,
+                        detail: None,
+                    };
+                }
+                Err(_) => {
+                    app.clients.loaded = true;
+                    app.clients.clients.clear();
+                }
+            }
+            app.navigate(View::Clients);
+        }
         KeyCode::Char('K') => {
             match views::skills::fetch(&app.client).await {
                 Ok(s) => {
@@ -1052,6 +1079,72 @@ async fn handle_status_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
         KeyCode::Char('c') => {
             app.chat = views::chat::ChatState::new(None, None);
             app.navigate(View::Chat);
+        }
+        _ => {}
+    }
+}
+
+/// Handle clients list view key events.
+async fn handle_clients_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => {
+            let max = app.clients.clients.len().saturating_sub(1);
+            if app.clients.selected < max {
+                app.clients.selected += 1;
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.clients.selected > 0 {
+                app.clients.selected -= 1;
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(client) = app.clients.clients.get(app.clients.selected) {
+                let slug = client.slug.clone();
+                match views::clients::fetch_client_detail(&app.client, &slug).await {
+                    Ok(detail) => app.clients.detail = Some(detail),
+                    Err(_) => {
+                        app.clients.detail = Some(views::clients::ClientDetailData::default())
+                    }
+                }
+                app.navigate(View::ClientDetail { slug });
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Handle client detail view key events.
+async fn handle_client_detail_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Some(detail) = &mut app.clients.detail {
+                let max = detail.projects.len().saturating_sub(1);
+                if detail.selected < max {
+                    detail.selected += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Some(detail) = &mut app.clients.detail {
+                if detail.selected > 0 {
+                    detail.selected -= 1;
+                }
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(detail) = &app.clients.detail {
+                if let Some(project) = detail.projects.get(detail.selected) {
+                    let slug = project.slug.clone();
+                    match views::project::fetch(&app.client, &slug).await {
+                        Ok(pd) => app.project_data = Some(pd),
+                        Err(_) => {
+                            app.project_data = Some(views::project::ProjectData::default())
+                        }
+                    }
+                    app.navigate(View::Project { slug });
+                }
+            }
         }
         _ => {}
     }
