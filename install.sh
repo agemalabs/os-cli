@@ -43,7 +43,7 @@ if [ -z "$GITHUB_TOKEN" ]; then
     echo "Required scope: repo"
     echo ""
     printf "GitHub token: "
-    read -r GITHUB_TOKEN
+    read -r GITHUB_TOKEN < /dev/tty
 
     if [ -z "$GITHUB_TOKEN" ]; then
         echo "Error: No token provided."
