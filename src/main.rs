@@ -108,6 +108,8 @@ enum Commands {
         #[arg(long)]
         regenerate: bool,
     },
+    /// Upgrade the CLI to the latest version
+    Upgrade,
 }
 
 #[tokio::main]
@@ -174,6 +176,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Token { regenerate }) => {
             commands::token::run(&client, regenerate).await?;
+        }
+        Some(Commands::Upgrade) => {
+            commands::upgrade::run(&cfg).await?;
         }
         None => {
             tui::run(client, cli.project).await?;

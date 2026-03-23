@@ -11,6 +11,9 @@ pub struct Config {
     pub api_url: String,
     pub token: String,
     pub default_org: String,
+    /// GitHub personal access token used to download release assets from the private repo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github_token: Option<String>,
 }
 
 impl Default for Config {
@@ -19,6 +22,7 @@ impl Default for Config {
             api_url: "https://api.os.agemalabs.com".to_string(),
             token: String::new(),
             default_org: "agema-labs".to_string(),
+            github_token: None,
         }
     }
 }
@@ -92,10 +96,35 @@ mod tests {
             api_url: "https://api.os.agemalabs.com".into(),
             token: "test-token".into(),
             default_org: "agema-labs".into(),
+            github_token: None,
         };
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.api_url, config.api_url);
         assert_eq!(parsed.token, config.token);
+    }
+
+    #[test]
+    fn config_with_github_token_roundtrips() {
+        let config = Config {
+            api_url: "https://api.os.agemalabs.com".into(),
+            token: "test-token".into(),
+            default_org: "agema-labs".into(),
+            github_token: Some("ghp_abc123".into()),
+        };
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.github_token, Some("ghp_abc123".into()));
+    }
+
+    #[test]
+    fn config_without_github_token_deserializes() {
+        let toml_str = r#"
+api_url = "https://api.os.agemalabs.com"
+token = ""
+default_org = "agema-labs"
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.github_token, None);
     }
 }

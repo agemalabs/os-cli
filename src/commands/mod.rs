@@ -9,3 +9,4 @@ pub mod search;
 pub mod sync;
 pub mod task;
 pub mod token;
+pub mod upgrade;
