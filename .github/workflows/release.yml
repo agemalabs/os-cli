@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Configure git for private os repo dependency
+        run: |
+          git config --global url."https://${{ secrets.OS_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+      - name: Build release binary
+        run: cargo build --release --target aarch64-apple-darwin
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+      - name: Prepare release artifacts
+        run: |
+          cp target/aarch64-apple-darwin/release/os os-aarch64-apple-darwin
+          shasum -a 256 os-aarch64-apple-darwin > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            os-aarch64-apple-darwin
+            checksums.txt
+          generate_release_notes: true
