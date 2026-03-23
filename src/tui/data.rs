@@ -34,6 +34,28 @@ pub struct ActivityEntry {
     pub created_at: String,
 }
 
+/// A single week of revenue data for the chart.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct RevenueWeek {
+    /// ISO date string for the Monday of this week (e.g. "2026-03-16").
+    pub week: String,
+    /// Revenue amount in dollars.
+    pub revenue: f64,
+    /// Whether this is a projected (future) week.
+    pub projected: bool,
+    /// Short label for x-axis display (e.g. "Jan", "Feb").
+    pub label: String,
+}
+
+/// Revenue chart data — 90 days trailing + 30 days projected.
+#[derive(Debug, Clone, Default)]
+pub struct RevenueChart {
+    pub weeks: Vec<RevenueWeek>,
+    pub total_90d: f64,
+    pub avg_weekly: f64,
+}
+
 /// Dashboard data loaded from the API.
 #[derive(Debug, Clone, Default)]
 pub struct DashboardData {
@@ -42,6 +64,7 @@ pub struct DashboardData {
     pub financials: Financials,
     pub activity: Vec<ActivityEntry>,
     pub activity_days: u32,
+    pub revenue_chart: RevenueChart,
 }
 
 /// Fetch dashboard data from the API.
@@ -94,12 +117,16 @@ pub async fn fetch_dashboard(client: &ApiClient) -> anyhow::Result<DashboardData
     // Fetch activity (non-fatal)
     let activity = fetch_activity(client, 1).await.unwrap_or_default();
 
+    // Fetch revenue chart (non-fatal)
+    let revenue_chart = fetch_revenue_chart(client).await.unwrap_or_default();
+
     Ok(DashboardData {
         projects,
         pending_changes_count,
         financials,
         activity,
         activity_days: 1,
+        revenue_chart,
     })
 }
 
@@ -126,6 +153,42 @@ pub async fn fetch_activity(client: &ApiClient, days: u32) -> anyhow::Result<Vec
         })
         .unwrap_or_default();
     Ok(entries)
+}
+
+/// Fetch revenue chart data from the API.
+pub async fn fetch_revenue_chart(client: &ApiClient) -> anyhow::Result<RevenueChart> {
+    let resp: serde_json::Value = client.get("/revenue/chart").await?;
+    let data = &resp["data"];
+
+    let total_90d = data["total_90d"].as_f64().unwrap_or(0.0);
+    let avg_weekly = data["avg_weekly"].as_f64().unwrap_or(0.0);
+
+    let weeks = data["weeks"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|w| {
+                    let week_str = w["week"].as_str().unwrap_or("").to_string();
+                    // Parse month for label — show abbreviated month name
+                    let label = chrono::NaiveDate::parse_from_str(&week_str, "%Y-%m-%d")
+                        .map(|d| d.format("%b").to_string())
+                        .unwrap_or_default();
+                    RevenueWeek {
+                        week: week_str,
+                        revenue: w["revenue"].as_f64().unwrap_or(0.0),
+                        projected: w["projected"].as_bool().unwrap_or(false),
+                        label,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(RevenueChart {
+        weeks,
+        total_90d,
+        avg_weekly,
+    })
 }
 
 /// Fetch user info (name).

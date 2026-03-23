@@ -1,4 +1,4 @@
-//! Dashboard view — projects, pending changes, activity, keybindings.
+//! Dashboard view — projects, pending changes, activity, revenue chart, keybindings.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::tui::app::App;
+use crate::tui::data::RevenueChart;
 use crate::tui::theme;
 
 /// Render the dashboard.
@@ -13,13 +14,26 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let now = chrono::Local::now();
     let time_str = now.format("%H:%M %a").to_string();
 
+    let has_chart = !app.dashboard.revenue_chart.weeks.is_empty();
+    let chart_height = if has_chart { 7 } else { 0 };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(8),
-            Constraint::Length(3),
-        ])
+        .constraints(if has_chart {
+            vec![
+                Constraint::Length(3),
+                Constraint::Length(chart_height),
+                Constraint::Min(8),
+                Constraint::Length(3),
+            ]
+        } else {
+            vec![
+                Constraint::Length(3),
+                Constraint::Length(0),
+                Constraint::Min(8),
+                Constraint::Length(3),
+            ]
+        })
         .split(area);
 
     // ---- Header ----
@@ -39,11 +53,16 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     );
     frame.render_widget(header, chunks[0]);
 
+    // ---- Revenue Chart ----
+    if has_chart {
+        render_revenue_chart(frame, chunks[1], &app.dashboard.revenue_chart);
+    }
+
     // ---- Content ----
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[1]);
+        .split(chunks[2]);
 
     render_projects(frame, content_chunks[0], app);
     render_right_panel(frame, content_chunks[1], app);
@@ -119,7 +138,119 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             .borders(Borders::ALL)
             .border_style(theme::muted_style()),
     );
-    frame.render_widget(footer, chunks[2]);
+    frame.render_widget(footer, chunks[3]);
+}
+
+/// Render the revenue bar chart — 90 days trailing + 30 days projected.
+///
+/// Layout: 1 line title, N lines of bars, 1 line of month labels.
+/// Each week is 2 chars wide with 1 char gap. Bars use block characters
+/// with green for actual revenue and muted for projected.
+fn render_revenue_chart(frame: &mut Frame, area: Rect, chart: &RevenueChart) {
+    if chart.weeks.is_empty() || area.height < 3 {
+        return;
+    }
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Title line with total and average
+    let title_spans = vec![
+        Span::styled("  REVENUE ", theme::title_style()),
+        Span::styled("(90d trailing + 30d projected)", theme::muted_style()),
+        Span::styled(
+            format!(
+                "   Total: {}  Avg/wk: {}",
+                format_currency(chart.total_90d),
+                format_currency(chart.avg_weekly),
+            ),
+            theme::muted_style(),
+        ),
+    ];
+    lines.push(Line::from(title_spans));
+
+    // Available height for bars (area minus title line minus x-axis label line)
+    let bar_rows = (area.height as usize).saturating_sub(2).max(1);
+
+    // Find max revenue for scaling
+    let max_rev = chart
+        .weeks
+        .iter()
+        .map(|w| w.revenue)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+
+    // Block characters for fractional bar heights (index 0 = empty, 7 = full)
+    let bar_chars = [' ', '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+
+    // How many chars wide we can use (leave 4 for left margin)
+    let available_width = (area.width as usize).saturating_sub(4);
+    // Each bar is 2 chars + 1 space = 3 chars per week
+    let max_bars = available_width / 3;
+    let weeks_to_show = chart.weeks.len().min(max_bars);
+    let display_weeks = &chart.weeks[chart.weeks.len().saturating_sub(weeks_to_show)..];
+
+    // Render bar rows (top to bottom)
+    for row in (0..bar_rows).rev() {
+        let threshold = (row as f64 / bar_rows as f64) * max_rev;
+        let next_threshold = ((row + 1) as f64 / bar_rows as f64) * max_rev;
+
+        let mut spans: Vec<Span> = vec![Span::raw("  ")];
+
+        for week in display_weeks {
+            let style = if week.projected {
+                theme::muted_style()
+            } else {
+                theme::success_style()
+            };
+
+            if week.revenue >= next_threshold {
+                // Full block for this row
+                spans.push(Span::styled(
+                    if week.projected { "\u{2591}\u{2591}" } else { "\u{2588}\u{2588}" },
+                    style,
+                ));
+            } else if week.revenue > threshold {
+                // Fractional block
+                let fraction = (week.revenue - threshold) / (next_threshold - threshold);
+                let char_idx = (fraction * 8.0).round() as usize;
+                let ch = bar_chars[char_idx.min(8)];
+                if week.projected {
+                    spans.push(Span::styled(format!("{}{}", ch, ch), theme::muted_style()));
+                } else {
+                    spans.push(Span::styled(format!("{}{}", ch, ch), style));
+                }
+            } else {
+                spans.push(Span::raw("  "));
+            }
+            spans.push(Span::raw(" "));
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    // X-axis month labels
+    let mut label_spans: Vec<Span> = vec![Span::raw("  ")];
+    let mut last_label = String::new();
+    for week in display_weeks {
+        let label = &week.label;
+        if *label != last_label {
+            label_spans.push(Span::styled(
+                format!("{:<3}", label),
+                theme::muted_style(),
+            ));
+            last_label = label.clone();
+        } else {
+            label_spans.push(Span::raw("   "));
+        }
+    }
+    lines.push(Line::from(label_spans));
+
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::BOTTOM)
+            .border_style(theme::muted_style()),
+    );
+    frame.render_widget(widget, area);
 }
 
 /// Render the project list.
