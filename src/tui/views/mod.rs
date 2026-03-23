@@ -1,6 +1,7 @@
 //! TUI views — one module per screen.
 
 pub mod changes;
+pub mod chat;
 pub mod dashboard;
 pub mod identity;
 pub mod lead;

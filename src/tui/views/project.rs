@@ -1,4 +1,4 @@
-//! Project view — files, tasks, phase, keybindings.
+//! Project view — files, tasks, decisions, phase, keybindings.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -15,8 +15,21 @@ pub struct ProjectData {
     pub name: String,
     pub description: Option<String>,
     pub phase: String,
+    pub client_name: Option<String>,
+    pub engagement_value: Option<f64>,
     pub files: Vec<FileEntry>,
     pub tasks: Vec<TaskEntry>,
+    pub decisions: Vec<DecisionEntry>,
+    pub repos: Vec<RepoEntry>,
+}
+
+/// Linked GitHub repo.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct RepoEntry {
+    pub id: String,
+    pub github_repo: String,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +47,16 @@ pub struct TaskEntry {
     pub assigned_to: Option<String>,
 }
 
+/// Decision entry for display.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DecisionEntry {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub resolution: Option<String>,
+}
+
 /// Fetch project data from the API.
 pub async fn fetch(
     client: &crate::api_client::ApiClient,
@@ -42,6 +65,12 @@ pub async fn fetch(
     let proj: serde_json::Value = client.get(&format!("/projects/{}", slug)).await?;
     let files_resp: serde_json::Value = client.get(&format!("/projects/{}/files", slug)).await?;
     let tasks_resp: serde_json::Value = client.get(&format!("/projects/{}/tasks", slug)).await?;
+    let decisions_resp: serde_json::Value =
+        client.get(&format!("/projects/{}/decisions", slug)).await?;
+    let repos_resp: serde_json::Value = client
+        .list_repos(slug)
+        .await
+        .unwrap_or(serde_json::json!({ "data": [] }));
 
     let files = files_resp["data"]
         .as_array()
@@ -68,12 +97,43 @@ pub async fn fetch(
         })
         .unwrap_or_default();
 
+    let decisions = decisions_resp["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|d| DecisionEntry {
+                    id: d["id"].as_str().unwrap_or("").to_string(),
+                    title: d["title"].as_str().unwrap_or("?").to_string(),
+                    status: d["status"].as_str().unwrap_or("open").to_string(),
+                    resolution: d["resolution"].as_str().map(|s| s.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let repos = repos_resp["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|r| RepoEntry {
+                    id: r["id"].as_str().unwrap_or("").to_string(),
+                    github_repo: r["github_repo"].as_str().unwrap_or("?").to_string(),
+                    label: r["label"].as_str().map(|s| s.to_string()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ProjectData {
         name: proj["data"]["name"].as_str().unwrap_or("?").to_string(),
         description: proj["data"]["description"].as_str().map(|s| s.to_string()),
         phase: proj["data"]["phase"].as_str().unwrap_or("?").to_string(),
+        client_name: proj["data"]["client_name"].as_str().map(|s| s.to_string()),
+        engagement_value: proj["data"]["engagement_value"].as_f64(),
         files,
         tasks,
+        decisions,
+        repos,
     })
 }
 
@@ -84,18 +144,24 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
 
     let has_input = app.input_mode.is_some();
 
+    let header_height = if data.client_name.is_some() || data.engagement_value.is_some() {
+        4
+    } else {
+        3
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if has_input {
             vec![
-                Constraint::Length(3),
+                Constraint::Length(header_height),
                 Constraint::Min(6),
                 Constraint::Length(3),
                 Constraint::Length(3),
             ]
         } else {
             vec![
-                Constraint::Length(3),
+                Constraint::Length(header_height),
                 Constraint::Min(8),
                 Constraint::Length(3),
                 Constraint::Length(0),
@@ -103,39 +169,69 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         })
         .split(area);
 
-    // Header
+    // Header — two lines: title + client/value info
     let phase = format_phase(&data.phase);
-    let left = format!(" PROJECT · {} · {}", data.name, phase);
     let right = format!("{} ", time_str);
-    let pad_len = (area.width as usize).saturating_sub(left.len() + right.len() + 2);
-    let header = Paragraph::new(Line::from(vec![
+
+    let mut header_lines = Vec::new();
+
+    // Line 1: PROJECT · Name · Phase
+    let title_left = format!(" PROJECT · {} · {}", data.name, phase);
+    let pad1 = (area.width as usize).saturating_sub(title_left.len() + right.len() + 2);
+    header_lines.push(Line::from(vec![
         Span::styled(" PROJECT ", theme::title_style()),
         Span::styled(format!("· {} · {}", data.name, phase), theme::muted_style()),
-        Span::raw(" ".repeat(pad_len)),
-        Span::styled(right, theme::muted_style()),
-    ]))
-    .block(
+        Span::raw(" ".repeat(pad1)),
+        Span::styled(&right, theme::muted_style()),
+    ]));
+
+    // Line 2: Client + Value (if available)
+    let mut detail_spans = vec![Span::raw("  ")];
+    if let Some(ref client) = data.client_name {
+        detail_spans.push(Span::styled("Client: ", theme::muted_style()));
+        detail_spans.push(Span::styled(client.as_str(), theme::label_style()));
+        detail_spans.push(Span::raw("    "));
+    }
+    if let Some(value) = data.engagement_value {
+        detail_spans.push(Span::styled("Value: ", theme::muted_style()));
+        detail_spans.push(Span::styled(
+            format!("${:.0}K", value / 1000.0),
+            theme::label_style(),
+        ));
+    }
+    if detail_spans.len() > 1 {
+        header_lines.push(Line::from(detail_spans));
+    }
+
+    let header = Paragraph::new(header_lines).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme::muted_style()),
     );
     frame.render_widget(header, chunks[0]);
 
-    // Content — files on left, tasks on right
+    // Content — files on left, tasks+decisions on right
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(chunks[1]);
 
-    render_files(frame, content_chunks[0], &data.files);
-    render_tasks(frame, content_chunks[1], &data.tasks);
+    render_files_and_repos(frame, content_chunks[0], &data.files, &data.repos);
+    render_tasks_and_decisions(frame, content_chunks[1], &data.tasks, &data.decisions);
 
     // Input bar (when active)
     if has_input && chunks.len() > 3 {
         let label = match &app.input_mode {
             Some(crate::tui::app::InputMode::PushFile { .. }) => "File path",
             Some(crate::tui::app::InputMode::NewTask { .. }) => "Task title",
+            Some(crate::tui::app::InputMode::NewDecision { .. }) => "Decision title",
+            Some(crate::tui::app::InputMode::LinkRepo { .. }) => "Repo (owner/repo)",
             Some(crate::tui::app::InputMode::NewLead) => "Company name",
+            Some(crate::tui::app::InputMode::NewProject) => "Project (name:slug)",
+            Some(crate::tui::app::InputMode::AddLeadNote { .. }) => "Note",
+            Some(crate::tui::app::InputMode::AddLeadContact { .. }) => "Contact (name:email)",
+            Some(crate::tui::app::InputMode::ChatInput { .. }) => "Question",
+            Some(crate::tui::app::InputMode::ResolveDecision { .. }) => "Resolution",
             None => "",
         };
         let input = Paragraph::new(Line::from(vec![
@@ -167,6 +263,10 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Span::styled("·decision  ", theme::muted_style()),
             Span::styled("p", theme::key_style()),
             Span::styled("·push file  ", theme::muted_style()),
+            Span::styled("r", theme::key_style()),
+            Span::styled("·repo  ", theme::muted_style()),
+            Span::styled("c", theme::key_style()),
+            Span::styled("·chat  ", theme::muted_style()),
             Span::styled("b", theme::key_style()),
             Span::styled("·back", theme::muted_style()),
         ]))
@@ -179,7 +279,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
     frame.render_widget(footer, chunks[2]);
 }
 
-fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
+fn render_files_and_repos(
+    frame: &mut Frame,
+    area: Rect,
+    files: &[FileEntry],
+    repos: &[RepoEntry],
+) {
     let mut lines = vec![
         Line::from(Span::styled("  FILES", theme::title_style())),
         Line::from(Span::styled(
@@ -200,6 +305,33 @@ fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
         }
     }
 
+    // Repos section
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  REPOS", theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "  ──────────────────────────",
+        theme::muted_style(),
+    )));
+
+    if repos.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No repos linked",
+            theme::muted_style(),
+        )));
+    } else {
+        for r in repos {
+            let display = if let Some(ref label) = r.label {
+                format!("{} ({})", r.github_repo, label)
+            } else {
+                r.github_repo.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", theme::label_style()),
+                Span::styled(display, theme::active_style()),
+            ]));
+        }
+    }
+
     let widget = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::RIGHT)
@@ -208,7 +340,12 @@ fn render_files(frame: &mut Frame, area: Rect, files: &[FileEntry]) {
     frame.render_widget(widget, area);
 }
 
-fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
+fn render_tasks_and_decisions(
+    frame: &mut Frame,
+    area: Rect,
+    tasks: &[TaskEntry],
+    decisions: &[DecisionEntry],
+) {
     let mut lines = vec![
         Line::from(Span::styled("  TASKS", theme::title_style())),
         Line::from(Span::styled(
@@ -235,6 +372,32 @@ fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(&t.title, style),
+            ]));
+        }
+    }
+
+    // Decisions section
+    let open_decisions: Vec<&DecisionEntry> =
+        decisions.iter().filter(|d| d.status == "open").collect();
+
+    if !open_decisions.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  DECISIONS",
+            theme::title_style(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ──────────────────────────────────",
+            theme::muted_style(),
+        )));
+
+        for d in open_decisions {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} ", theme::MARKER_DECISION),
+                    theme::warning_style(),
+                ),
+                Span::styled(&d.title, theme::warning_style()),
             ]));
         }
     }

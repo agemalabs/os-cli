@@ -6,6 +6,7 @@ use crossterm::event::KeyEvent;
 use crate::api_client::ApiClient;
 use crate::tui::data::DashboardData;
 use crate::tui::views::changes::ChangesState;
+use crate::tui::views::chat::ChatState;
 use crate::tui::views::identity::IdentityMode;
 use crate::tui::views::lead::LeadDetail;
 use crate::tui::views::pipeline::PipelineState;
@@ -16,10 +17,18 @@ use crate::tui::views::status::StatusData;
 
 /// Text input mode — what we're capturing input for.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum InputMode {
     PushFile { project_slug: String },
     NewTask { project_slug: String },
+    NewDecision { project_slug: String },
+    LinkRepo { project_slug: String },
     NewLead,
+    NewProject,
+    AddLeadNote { lead_id: String },
+    AddLeadContact { lead_id: String },
+    ChatInput { project_slug: Option<String>, lead_id: Option<String> },
+    ResolveDecision { project_slug: String, decision_id: String },
 }
 
 /// Which view is currently active.
@@ -35,12 +44,13 @@ pub enum View {
     LeadDetail { id: String },
     Identity,
     Skills,
+    Chat,
 }
 
 /// Top-level application state.
 pub struct App {
     pub view: View,
-    pub previous_view: Option<View>,
+    pub view_stack: Vec<View>,
     pub running: bool,
     pub client: ApiClient,
     pub user_name: String,
@@ -56,9 +66,12 @@ pub struct App {
     pub input_buffer: String,
     pub identity_mode: IdentityMode,
     pub skills: SkillsState,
+    pub chat: ChatState,
     pub selected_index: usize,
     pub loading: bool,
     pub error: Option<String>,
+    /// Activity toggle: 1 = today, 7 = week.
+    pub activity_days: u32,
 }
 
 impl App {
@@ -73,7 +86,7 @@ impl App {
 
         Self {
             view,
-            previous_view: None,
+            view_stack: Vec::new(),
             running: true,
             client,
             user_name: String::new(),
@@ -88,22 +101,24 @@ impl App {
             input_buffer: String::new(),
             identity_mode: IdentityMode::default(),
             skills: SkillsState::default(),
+            chat: ChatState::default(),
             selected_index: 0,
             loading: true,
             error: None,
+            activity_days: 1,
         }
     }
 
-    /// Navigate to a new view, saving the current one for back navigation.
+    /// Navigate to a new view, pushing the current one onto the back stack.
     pub fn navigate(&mut self, view: View) {
-        self.previous_view = Some(self.view.clone());
+        self.view_stack.push(self.view.clone());
         self.view = view;
         self.selected_index = 0;
     }
 
-    /// Go back to the previous view.
+    /// Go back to the previous view. Supports multi-level back navigation.
     pub fn go_back(&mut self) {
-        if let Some(prev) = self.previous_view.take() {
+        if let Some(prev) = self.view_stack.pop() {
             self.view = prev;
             self.selected_index = 0;
         }
@@ -169,6 +184,24 @@ mod tests {
         app.navigate(View::Search);
         assert_eq!(app.view, View::Search);
 
+        app.go_back();
+        assert_eq!(app.view, View::Dashboard);
+    }
+
+    #[test]
+    fn multi_level_back_navigation() {
+        let mut app = test_app();
+        app.navigate(View::Pipeline);
+        app.navigate(View::LeadDetail { id: "abc".into() });
+        assert_eq!(app.view, View::LeadDetail { id: "abc".into() });
+
+        app.go_back();
+        assert_eq!(app.view, View::Pipeline);
+
+        app.go_back();
+        assert_eq!(app.view, View::Dashboard);
+
+        // At dashboard, go_back does nothing
         app.go_back();
         assert_eq!(app.view, View::Dashboard);
     }
