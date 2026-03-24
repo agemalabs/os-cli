@@ -429,14 +429,26 @@ fn render_tasks_and_team(frame: &mut Frame, area: Rect, tasks: &[TaskEntry], tea
         }
     }
 
-    // Team section
-    if !team.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  TEAM", theme::title_style())));
+    // Team section — always shown
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  TEAM", theme::title_style())));
+    lines.push(Line::from(Span::styled(
+        "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+        theme::muted_style(),
+    )));
+    if team.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {} ", theme::MARKER_OVERDUE),
+                theme::danger_style(),
+            ),
+            Span::styled("No users assigned", theme::danger_style()),
+        ]));
         lines.push(Line::from(Span::styled(
-            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            "  Press m to assign team",
             theme::muted_style(),
         )));
+    } else {
         for m in team {
             let (marker, style) = if m.role == "manager" {
                 ("\u{2605}", theme::active_style()) // star for PM

@@ -12,6 +12,8 @@ pub struct ProjectSummary {
     pub description: Option<String>,
     pub phase: String,
     pub is_internal: bool,
+    #[serde(default)]
+    pub team_count: usize,
 }
 
 /// Financial summary combining engagement values and Xero data.
@@ -69,7 +71,11 @@ pub async fn fetch_dashboard(client: &ApiClient) -> anyhow::Result<DashboardData
         .as_array()
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                .filter_map(|v| {
+                    let mut p: ProjectSummary = serde_json::from_value(v.clone()).ok()?;
+                    p.team_count = v["team"].as_array().map(|a| a.len()).unwrap_or(0);
+                    Some(p)
+                })
                 .collect()
         })
         .unwrap_or_default();

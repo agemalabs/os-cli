@@ -293,10 +293,17 @@ fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
                 theme::label_style()
             };
 
+            let team_warning = if project.team_count == 0 && !project.is_internal {
+                Span::styled("  ⚠ no team", theme::danger_style())
+            } else {
+                Span::raw("")
+            };
+
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(format!("{:<20}", truncate(&project.name, 20)), style),
                 Span::styled(format!("  {}", phase_display), theme::muted_style()),
+                team_warning,
             ]));
         }
     }
