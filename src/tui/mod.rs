@@ -906,7 +906,7 @@ fn handle_project_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
 async fn handle_dashboard_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => {
-            let max = app.dashboard.projects.len().saturating_sub(1);
+            let max = views::dashboard::visible_count(app).saturating_sub(1);
             if app.selected_index < max {
                 app.selected_index += 1;
             }
@@ -917,7 +917,8 @@ async fn handle_dashboard_keys(app: &mut App, key: &crossterm::event::KeyEvent) 
             }
         }
         KeyCode::Enter => {
-            if let Some(project) = app.dashboard.projects.get(app.selected_index) {
+            let (visible, _) = views::dashboard::visible_projects(app);
+            if let Some(project) = visible.get(app.selected_index) {
                 let slug = project.slug.clone();
                 match views::project::fetch(&app.client, &slug).await {
                     Ok(pd) => app.project_data = Some(pd),

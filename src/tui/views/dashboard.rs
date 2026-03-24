@@ -255,37 +255,79 @@ fn render_revenue_chart(frame: &mut Frame, area: Rect, chart_data: &RevenueChart
     frame.render_widget(chart_widget, area);
 }
 
-/// Render the project list.
+/// Build a flat list of visible projects (systems + projects, excluding brain).
+/// Returns the list and the index where the "PROJECTS" section starts.
+pub fn visible_projects(app: &App) -> (Vec<&crate::tui::data::ProjectSummary>, usize) {
+    let systems: Vec<&crate::tui::data::ProjectSummary> = app
+        .dashboard
+        .projects
+        .iter()
+        .filter(|p| p.category == "system")
+        .collect();
+    let projects: Vec<&crate::tui::data::ProjectSummary> = app
+        .dashboard
+        .projects
+        .iter()
+        .filter(|p| p.category != "system" && p.category != "brain")
+        .collect();
+    let systems_count = systems.len();
+    let mut result: Vec<&crate::tui::data::ProjectSummary> = Vec::with_capacity(systems.len() + projects.len());
+    result.extend(systems);
+    result.extend(projects);
+    (result, systems_count)
+}
+
+/// Total number of selectable items on the dashboard (systems + projects, excluding brain).
+pub fn visible_count(app: &App) -> usize {
+    app.dashboard
+        .projects
+        .iter()
+        .filter(|p| p.category != "brain")
+        .count()
+}
+
+/// Render the project list grouped by category (systems first, then projects).
 fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
-    let mut lines = vec![
-        Line::from(Span::styled("  PROJECTS", theme::title_style())),
-        Line::from(Span::styled(
-            "  ─────────────────────────────────────",
-            theme::muted_style(),
-        )),
-    ];
+    let mut lines: Vec<Line> = Vec::new();
 
     if app.loading {
+        lines.push(Line::from(Span::styled("  Loading...", theme::muted_style())));
+        let widget = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(theme::muted_style()),
+        );
+        frame.render_widget(widget, area);
+        return;
+    }
+
+    let (visible, systems_count) = visible_projects(app);
+
+    if visible.is_empty() {
+        lines.push(Line::from(Span::styled("  No projects yet", theme::muted_style())));
+        let widget = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(theme::muted_style()),
+        );
+        frame.render_widget(widget, area);
+        return;
+    }
+
+    // Systems section
+    if systems_count > 0 {
+        lines.push(Line::from(Span::styled("  SYSTEMS", theme::title_style())));
         lines.push(Line::from(Span::styled(
-            "  Loading...",
+            "  ─────────────────────────────────────",
             theme::muted_style(),
         )));
-    } else if app.dashboard.projects.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  No projects yet",
-            theme::muted_style(),
-        )));
-    } else {
-        for (i, project) in app.dashboard.projects.iter().enumerate() {
+
+        for (i, project) in visible.iter().enumerate().take(systems_count) {
             let marker = if i == app.selected_index {
                 theme::MARKER_ACTIVE
-            } else if project.is_internal {
-                theme::MARKER_INACTIVE
             } else {
-                theme::MARKER_ACTIVE
+                theme::MARKER_INACTIVE
             };
-
-            let phase_display = format_phase(&project.phase);
 
             let style = if i == app.selected_index {
                 theme::active_style()
@@ -293,7 +335,40 @@ fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
                 theme::label_style()
             };
 
-            let team_warning = if project.team_count == 0 && !project.is_internal {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", marker), style),
+                Span::styled(format!("{:<20}", truncate(&project.name, 20)), style),
+                Span::styled(format!("  {}", format_phase(&project.phase)), theme::muted_style()),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+    }
+
+    // Projects section
+    let project_items: Vec<&&crate::tui::data::ProjectSummary> = visible.iter().skip(systems_count).collect();
+    if !project_items.is_empty() {
+        lines.push(Line::from(Span::styled("  PROJECTS", theme::title_style())));
+        lines.push(Line::from(Span::styled(
+            "  ─────────────────────────────────────",
+            theme::muted_style(),
+        )));
+
+        for (j, project) in project_items.iter().enumerate() {
+            let flat_index = systems_count + j;
+            let marker = if flat_index == app.selected_index {
+                theme::MARKER_ACTIVE
+            } else {
+                theme::MARKER_ACTIVE
+            };
+
+            let style = if flat_index == app.selected_index {
+                theme::active_style()
+            } else {
+                theme::label_style()
+            };
+
+            let team_warning = if project.team_count == 0 {
                 Span::styled("  ⚠ no team", theme::danger_style())
             } else {
                 Span::raw("")
@@ -302,7 +377,7 @@ fn render_projects(frame: &mut Frame, area: Rect, app: &App) {
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(format!("{:<20}", truncate(&project.name, 20)), style),
-                Span::styled(format!("  {}", phase_display), theme::muted_style()),
+                Span::styled(format!("  {}", format_phase(&project.phase)), theme::muted_style()),
                 team_warning,
             ]));
         }

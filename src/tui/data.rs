@@ -12,8 +12,16 @@ pub struct ProjectSummary {
     pub description: Option<String>,
     pub phase: String,
     pub is_internal: bool,
+    /// Project category: "project", "system", or "brain".
+    #[serde(default = "default_category")]
+    pub category: String,
     #[serde(default)]
     pub team_count: usize,
+}
+
+/// Default category for backward compatibility with APIs that don't yet return it.
+fn default_category() -> String {
+    "project".to_string()
 }
 
 /// Financial summary combining engagement values and Xero data.
