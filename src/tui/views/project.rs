@@ -8,6 +8,16 @@ use ratatui::Frame;
 use crate::tui::app::App;
 use crate::tui::theme;
 
+/// Team member assigned to a project.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct TeamMember {
+    pub user_id: String,
+    pub name: String,
+    pub email: String,
+    pub role: String, // "member" or "manager"
+}
+
 /// Project view data loaded from API.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -21,6 +31,7 @@ pub struct ProjectData {
     pub tasks: Vec<TaskEntry>,
     pub decisions: Vec<DecisionEntry>,
     pub repos: Vec<RepoEntry>,
+    pub team: Vec<TeamMember>,
 }
 
 /// Linked GitHub repo.
@@ -124,6 +135,20 @@ pub async fn fetch(
         })
         .unwrap_or_default();
 
+    let team = proj["data"]["team"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|m| TeamMember {
+                    user_id: m["user_id"].as_str().unwrap_or("").to_string(),
+                    name: m["name"].as_str().unwrap_or("Unknown").to_string(),
+                    email: m["email"].as_str().unwrap_or("").to_string(),
+                    role: m["role"].as_str().unwrap_or("member").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ProjectData {
         name: proj["data"]["name"].as_str().unwrap_or("?").to_string(),
         description: proj["data"]["description"].as_str().map(|s| s.to_string()),
@@ -134,6 +159,7 @@ pub async fn fetch(
         tasks,
         decisions,
         repos,
+        team,
     })
 }
 
@@ -235,7 +261,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         .split(chunks[2]);
 
     render_files_and_decisions(frame, content_chunks[0], &data.files, &data.decisions);
-    render_tasks(frame, content_chunks[1], &data.tasks);
+    render_tasks_and_team(frame, content_chunks[1], &data.tasks, &data.team);
 
     // ---- Repos: full width ----
     render_repos(frame, chunks[3], &data.repos);
@@ -253,6 +279,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Some(crate::tui::app::InputMode::AddLeadContact { .. }) => "Contact (name:email)",
             Some(crate::tui::app::InputMode::ChatInput { .. }) => "Question",
             Some(crate::tui::app::InputMode::ResolveDecision { .. }) => "Resolution",
+            Some(crate::tui::app::InputMode::AddTeamMember { .. }) => "Email address",
             None => "",
         };
         let input = Paragraph::new(Line::from(vec![
@@ -286,6 +313,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Span::styled("\u{00b7}decision  ", theme::muted_style()),
             Span::styled("r", theme::key_style()),
             Span::styled("\u{00b7}repo  ", theme::muted_style()),
+            Span::styled("m", theme::key_style()),
+            Span::styled("\u{00b7}team  ", theme::muted_style()),
             Span::styled("c", theme::key_style()),
             Span::styled("\u{00b7}chat  ", theme::muted_style()),
             Span::styled("b", theme::key_style()),
@@ -361,8 +390,8 @@ fn render_files_and_decisions(
     frame.render_widget(widget, area);
 }
 
-/// Render tasks in the right column.
-fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
+/// Render tasks and team in the right column.
+fn render_tasks_and_team(frame: &mut Frame, area: Rect, tasks: &[TaskEntry], team: &[TeamMember]) {
     let mut lines = vec![
         Line::from(Span::styled("  TASKS", theme::title_style())),
         Line::from(Span::styled(
@@ -396,6 +425,29 @@ fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(&t.title, style),
                 Span::styled(assigned, theme::muted_style()),
+            ]));
+        }
+    }
+
+    // Team section
+    if !team.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  TEAM", theme::title_style())));
+        lines.push(Line::from(Span::styled(
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            theme::muted_style(),
+        )));
+        for m in team {
+            let (marker, style) = if m.role == "manager" {
+                ("\u{2605}", theme::active_style()) // star for PM
+            } else {
+                ("\u{25CB}", theme::label_style()) // circle for member
+            };
+            let role_label = if m.role == "manager" { " (PM)" } else { "" };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", marker), style),
+                Span::styled(&m.name, style),
+                Span::styled(role_label, theme::muted_style()),
             ]));
         }
     }

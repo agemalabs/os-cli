@@ -268,6 +268,29 @@ impl ApiClient {
             .await
     }
 
+    /// `POST /projects/:slug/team` — add a team member by email.
+    pub async fn add_team_member(
+        &self,
+        project_slug: &str,
+        email: &str,
+        role: &str,
+    ) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "email": email, "role": role });
+        self.post(&format!("/projects/{}/team", project_slug), &body)
+            .await
+    }
+
+    /// `DELETE /projects/:slug/team/:user_id` — remove a team member.
+    #[allow(dead_code)]
+    pub async fn remove_team_member(
+        &self,
+        project_slug: &str,
+        user_id: &str,
+    ) -> Result<()> {
+        self.delete(&format!("/projects/{}/team/{}", project_slug, user_id))
+            .await
+    }
+
     /// `GET /projects/:slug/repos` — list linked repos for a project.
     pub async fn list_repos(&self, project_slug: &str) -> Result<serde_json::Value> {
         self.get(&format!("/projects/{}/repos", project_slug))

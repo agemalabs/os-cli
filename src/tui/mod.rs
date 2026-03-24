@@ -379,6 +379,17 @@ async fn handle_input_mode(app: &mut App, key: &crossterm::event::KeyEvent) {
                         }
                         app.chat.loading = false;
                     }
+                    Some(app::InputMode::AddTeamMember { project_slug }) => {
+                        let _ = app
+                            .client
+                            .add_team_member(&project_slug, &buffer, "member")
+                            .await;
+                        if let Ok(pd) =
+                            views::project::fetch(&app.client, &project_slug).await
+                        {
+                            app.project_data = Some(pd);
+                        }
+                    }
                     None => {}
                 }
             }
@@ -845,6 +856,12 @@ fn handle_project_keys(app: &mut App, key: &crossterm::event::KeyEvent) {
             }
             KeyCode::Char('r') => {
                 app.input_mode = Some(app::InputMode::LinkRepo {
+                    project_slug: slug,
+                });
+                app.input_buffer.clear();
+            }
+            KeyCode::Char('m') => {
+                app.input_mode = Some(app::InputMode::AddTeamMember {
                     project_slug: slug,
                 });
                 app.input_buffer.clear();
