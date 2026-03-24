@@ -110,6 +110,40 @@ enum Commands {
     },
     /// Upgrade the CLI to the latest version
     Upgrade,
+    /// Manage users — list, invite, update role, remove
+    User {
+        #[command(subcommand)]
+        command: UserCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum UserCommand {
+    /// List all users in the organization
+    List,
+    /// Invite a new user by email
+    Invite {
+        /// Email address
+        email: String,
+        /// Display name
+        #[arg(long)]
+        name: Option<String>,
+        /// Role: admin, member, or client
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Change a user's role
+    Role {
+        /// User's email address
+        email: String,
+        /// New role: admin, member, or client
+        role: String,
+    },
+    /// Remove a user
+    Remove {
+        /// User's email address
+        email: String,
+    },
 }
 
 #[tokio::main]
@@ -180,6 +214,20 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Upgrade) => {
             commands::upgrade::run().await?;
         }
+        Some(Commands::User { command }) => match command {
+            UserCommand::List => {
+                commands::user::list(&client).await?;
+            }
+            UserCommand::Invite { email, name, role } => {
+                commands::user::invite(&client, &email, name.as_deref(), &role).await?;
+            }
+            UserCommand::Role { email, role } => {
+                commands::user::role(&client, &email, &role).await?;
+            }
+            UserCommand::Remove { email } => {
+                commands::user::remove(&client, &email).await?;
+            }
+        },
         None => {
             tui::run(client, cli.project).await?;
         }

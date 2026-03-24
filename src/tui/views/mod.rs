@@ -2,6 +2,7 @@
 
 pub mod changes;
 pub mod chat;
+pub mod clients;
 pub mod dashboard;
 pub mod identity;
 pub mod lead;

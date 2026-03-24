@@ -7,6 +7,7 @@ use crate::api_client::ApiClient;
 use crate::tui::data::DashboardData;
 use crate::tui::views::changes::ChangesState;
 use crate::tui::views::chat::ChatState;
+use crate::tui::views::clients::ClientsState;
 use crate::tui::views::identity::IdentityMode;
 use crate::tui::views::lead::LeadDetail;
 use crate::tui::views::pipeline::PipelineState;
@@ -45,6 +46,8 @@ pub enum View {
     Identity,
     Skills,
     Chat,
+    Clients,
+    ClientDetail { slug: String },
 }
 
 /// Top-level application state.
@@ -67,6 +70,7 @@ pub struct App {
     pub identity_mode: IdentityMode,
     pub skills: SkillsState,
     pub chat: ChatState,
+    pub clients: ClientsState,
     pub selected_index: usize,
     pub loading: bool,
     pub error: Option<String>,
@@ -102,6 +106,7 @@ impl App {
             identity_mode: IdentityMode::default(),
             skills: SkillsState::default(),
             chat: ChatState::default(),
+            clients: ClientsState::default(),
             selected_index: 0,
             loading: true,
             error: None,

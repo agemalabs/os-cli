@@ -128,6 +128,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("·chat  ", theme::muted_style()),
             Span::styled("x", theme::key_style()),
             Span::styled("·changes  ", theme::muted_style()),
+            Span::styled("C", theme::key_style()),
+            Span::styled("·clients  ", theme::muted_style()),
             Span::styled("/", theme::key_style()),
             Span::styled("·pipeline  ", theme::muted_style()),
             Span::styled("q", theme::key_style()),

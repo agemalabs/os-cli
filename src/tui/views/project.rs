@@ -1,8 +1,8 @@
-//! Project view — files, tasks, decisions, phase, keybindings.
+//! Project view — files, tasks, decisions, repos, overview, keybindings.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::tui::app::App;
@@ -143,65 +143,64 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
     let time_str = now.format("%H:%M %a").to_string();
 
     let has_input = app.input_mode.is_some();
-
-    let header_height = if data.client_name.is_some() || data.engagement_value.is_some() {
-        4
-    } else {
-        3
-    };
+    let has_description = data.description.is_some();
+    let repos_height = if data.repos.is_empty() { 3 } else { (2 + data.repos.len()).min(6) as u16 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if has_input {
             vec![
-                Constraint::Length(header_height),
-                Constraint::Min(6),
-                Constraint::Length(3),
-                Constraint::Length(3),
+                Constraint::Length(3),                                // header
+                Constraint::Length(if has_description { 4 } else { 0 }), // overview
+                Constraint::Min(6),                                   // files+tasks
+                Constraint::Length(repos_height),                     // repos
+                Constraint::Length(3),                                // footer
+                Constraint::Length(3),                                // input
             ]
         } else {
             vec![
-                Constraint::Length(header_height),
-                Constraint::Min(8),
-                Constraint::Length(3),
-                Constraint::Length(0),
+                Constraint::Length(3),                                // header
+                Constraint::Length(if has_description { 4 } else { 0 }), // overview
+                Constraint::Min(8),                                   // files+tasks
+                Constraint::Length(repos_height),                     // repos
+                Constraint::Length(3),                                // footer
+                Constraint::Length(0),                                // input (hidden)
             ]
         })
         .split(area);
 
-    // Header — two lines: title + client/value info
+    // ---- Header: project name, client, phase, financials ----
     let phase = format_phase(&data.phase);
-    let right = format!("{} ", time_str);
+    let right = format!("{}  {} ", app.user_name, time_str);
 
-    let mut header_lines = Vec::new();
-
-    // Line 1: PROJECT · Name · Phase
-    let title_left = format!(" PROJECT · {} · {}", data.name, phase);
+    let title_left = format!(" PROJECT \u{00b7} {} ", data.name);
     let pad1 = (area.width as usize).saturating_sub(title_left.len() + right.len() + 2);
-    header_lines.push(Line::from(vec![
+
+    let mut header_lines = vec![Line::from(vec![
         Span::styled(" PROJECT ", theme::title_style()),
-        Span::styled(format!("· {} · {}", data.name, phase), theme::muted_style()),
+        Span::styled(format!("\u{00b7} {} ", data.name), theme::label_style()),
         Span::raw(" ".repeat(pad1)),
         Span::styled(&right, theme::muted_style()),
-    ]));
+    ])];
 
-    // Line 2: Client + Value (if available)
+    // Second header line: Client + Phase + Value
     let mut detail_spans = vec![Span::raw("  ")];
     if let Some(ref client) = data.client_name {
         detail_spans.push(Span::styled("Client: ", theme::muted_style()));
         detail_spans.push(Span::styled(client.as_str(), theme::label_style()));
-        detail_spans.push(Span::raw("    "));
+        detail_spans.push(Span::raw("   "));
     }
+    detail_spans.push(Span::styled("Phase: ", theme::muted_style()));
+    detail_spans.push(Span::styled(phase, theme::active_style()));
     if let Some(value) = data.engagement_value {
+        detail_spans.push(Span::raw("   "));
         detail_spans.push(Span::styled("Value: ", theme::muted_style()));
         detail_spans.push(Span::styled(
-            format!("${:.0}K", value / 1000.0),
+            format_currency(value),
             theme::label_style(),
         ));
     }
-    if detail_spans.len() > 1 {
-        header_lines.push(Line::from(detail_spans));
-    }
+    header_lines.push(Line::from(detail_spans));
 
     let header = Paragraph::new(header_lines).block(
         Block::default()
@@ -210,17 +209,39 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
     );
     frame.render_widget(header, chunks[0]);
 
-    // Content — files on left, tasks+decisions on right
+    // ---- Overview: project description ----
+    if has_description {
+        if let Some(ref desc) = data.description {
+            let overview = Paragraph::new(vec![
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(desc.as_str(), theme::label_style()),
+                ]),
+            ])
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(theme::muted_style()),
+            );
+            frame.render_widget(overview, chunks[1]);
+        }
+    }
+
+    // ---- Content: files+decisions on left, tasks on right ----
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(chunks[1]);
+        .split(chunks[2]);
 
-    render_files_and_repos(frame, content_chunks[0], &data.files, &data.repos);
-    render_tasks_and_decisions(frame, content_chunks[1], &data.tasks, &data.decisions);
+    render_files_and_decisions(frame, content_chunks[0], &data.files, &data.decisions);
+    render_tasks(frame, content_chunks[1], &data.tasks);
 
-    // Input bar (when active)
-    if has_input && chunks.len() > 3 {
+    // ---- Repos: full width ----
+    render_repos(frame, chunks[3], &data.repos);
+
+    // ---- Input bar (when active) ----
+    if has_input && chunks.len() > 5 {
         let label = match &app.input_mode {
             Some(crate::tui::app::InputMode::PushFile { .. }) => "File path",
             Some(crate::tui::app::InputMode::NewTask { .. }) => "Task title",
@@ -237,38 +258,38 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         let input = Paragraph::new(Line::from(vec![
             Span::styled(format!("  {} > ", label), theme::active_style()),
             Span::styled(&app.input_buffer, theme::label_style()),
-            Span::styled("█", theme::active_style()),
+            Span::styled("\u{2588}", theme::active_style()),
         ]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme::active_style()),
         );
-        frame.render_widget(input, chunks[3]);
+        frame.render_widget(input, chunks[5]);
     }
 
-    // Footer
+    // ---- Footer ----
     let footer = if has_input {
         Paragraph::new(Line::from(vec![
             Span::styled(" Enter", theme::key_style()),
-            Span::styled("·submit  ", theme::muted_style()),
+            Span::styled("\u{00b7}submit  ", theme::muted_style()),
             Span::styled("Esc", theme::key_style()),
-            Span::styled("·cancel", theme::muted_style()),
+            Span::styled("\u{00b7}cancel", theme::muted_style()),
         ]))
     } else {
         Paragraph::new(Line::from(vec![
-            Span::styled(" t", theme::key_style()),
-            Span::styled("·task  ", theme::muted_style()),
+            Span::styled(" p", theme::key_style()),
+            Span::styled("\u{00b7}push  ", theme::muted_style()),
+            Span::styled("t", theme::key_style()),
+            Span::styled("\u{00b7}task  ", theme::muted_style()),
             Span::styled("d", theme::key_style()),
-            Span::styled("·decision  ", theme::muted_style()),
-            Span::styled("p", theme::key_style()),
-            Span::styled("·push file  ", theme::muted_style()),
+            Span::styled("\u{00b7}decision  ", theme::muted_style()),
             Span::styled("r", theme::key_style()),
-            Span::styled("·repo  ", theme::muted_style()),
+            Span::styled("\u{00b7}repo  ", theme::muted_style()),
             Span::styled("c", theme::key_style()),
-            Span::styled("·chat  ", theme::muted_style()),
+            Span::styled("\u{00b7}chat  ", theme::muted_style()),
             Span::styled("b", theme::key_style()),
-            Span::styled("·back", theme::muted_style()),
+            Span::styled("\u{00b7}back", theme::muted_style()),
         ]))
     }
     .block(
@@ -276,19 +297,20 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             .borders(Borders::ALL)
             .border_style(theme::muted_style()),
     );
-    frame.render_widget(footer, chunks[2]);
+    frame.render_widget(footer, chunks[4]);
 }
 
-fn render_files_and_repos(
+/// Render files list with decisions below in the left column.
+fn render_files_and_decisions(
     frame: &mut Frame,
     area: Rect,
     files: &[FileEntry],
-    repos: &[RepoEntry],
+    decisions: &[DecisionEntry],
 ) {
     let mut lines = vec![
         Line::from(Span::styled("  FILES", theme::title_style())),
         Line::from(Span::styled(
-            "  ──────────────────────────",
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
             theme::muted_style(),
         )),
     ];
@@ -305,29 +327,28 @@ fn render_files_and_repos(
         }
     }
 
-    // Repos section
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  REPOS", theme::title_style())));
-    lines.push(Line::from(Span::styled(
-        "  ──────────────────────────",
-        theme::muted_style(),
-    )));
+    // Decisions section below files
+    let open_decisions: Vec<&DecisionEntry> =
+        decisions.iter().filter(|d| d.status == "open").collect();
 
-    if repos.is_empty() {
+    if !open_decisions.is_empty() {
+        lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  No repos linked",
+            "  DECISIONS",
+            theme::title_style(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
             theme::muted_style(),
         )));
-    } else {
-        for r in repos {
-            let display = if let Some(ref label) = r.label {
-                format!("{} ({})", r.github_repo, label)
-            } else {
-                r.github_repo.clone()
-            };
+
+        for d in open_decisions {
             lines.push(Line::from(vec![
-                Span::styled("  ", theme::label_style()),
-                Span::styled(display, theme::active_style()),
+                Span::styled(
+                    format!("  {} ", theme::MARKER_DECISION),
+                    theme::warning_style(),
+                ),
+                Span::styled(&d.title, theme::warning_style()),
             ]));
         }
     }
@@ -340,16 +361,12 @@ fn render_files_and_repos(
     frame.render_widget(widget, area);
 }
 
-fn render_tasks_and_decisions(
-    frame: &mut Frame,
-    area: Rect,
-    tasks: &[TaskEntry],
-    decisions: &[DecisionEntry],
-) {
+/// Render tasks in the right column.
+fn render_tasks(frame: &mut Frame, area: Rect, tasks: &[TaskEntry]) {
     let mut lines = vec![
         Line::from(Span::styled("  TASKS", theme::title_style())),
         Line::from(Span::styled(
-            "  ──────────────────────────────────",
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
             theme::muted_style(),
         )),
     ];
@@ -369,40 +386,51 @@ fn render_tasks_and_decisions(
                 _ => theme::label_style(),
             };
 
+            let assigned = t
+                .assigned_to
+                .as_deref()
+                .map(|a| format!("  @{}", a))
+                .unwrap_or_default();
+
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", marker), style),
                 Span::styled(&t.title, style),
-            ]));
-        }
-    }
-
-    // Decisions section
-    let open_decisions: Vec<&DecisionEntry> =
-        decisions.iter().filter(|d| d.status == "open").collect();
-
-    if !open_decisions.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  DECISIONS",
-            theme::title_style(),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  ──────────────────────────────────",
-            theme::muted_style(),
-        )));
-
-        for d in open_decisions {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {} ", theme::MARKER_DECISION),
-                    theme::warning_style(),
-                ),
-                Span::styled(&d.title, theme::warning_style()),
+                Span::styled(assigned, theme::muted_style()),
             ]));
         }
     }
 
     let widget = Paragraph::new(lines);
+    frame.render_widget(widget, area);
+}
+
+/// Render repos in a full-width row.
+fn render_repos(frame: &mut Frame, area: Rect, repos: &[RepoEntry]) {
+    let mut lines = vec![
+        Line::from(Span::styled("  REPOS", theme::title_style())),
+    ];
+
+    if repos.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No repos linked",
+            theme::muted_style(),
+        )));
+    } else {
+        for r in repos {
+            let display = if let Some(ref label) = r.label {
+                format!("  {} \u{00b7} {}", r.github_repo, label)
+            } else {
+                format!("  {}", r.github_repo)
+            };
+            lines.push(Line::from(Span::styled(display, theme::active_style())));
+        }
+    }
+
+    let widget = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(theme::muted_style()),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -467,6 +495,17 @@ pub async fn push_file(
             .await?;
 
         Ok(format!("Uploaded {}", filename))
+    }
+}
+
+/// Format a currency value as "$XK" or "$X.XM".
+fn format_currency(amount: f64) -> String {
+    if amount >= 1_000_000.0 {
+        format!("${:.1}M", amount / 1_000_000.0)
+    } else if amount >= 1_000.0 {
+        format!("${:.0}K", amount / 1_000.0)
+    } else {
+        format!("${:.0}", amount)
     }
 }
 
