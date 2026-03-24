@@ -280,6 +280,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             Some(crate::tui::app::InputMode::ChatInput { .. }) => "Question",
             Some(crate::tui::app::InputMode::ResolveDecision { .. }) => "Resolution",
             Some(crate::tui::app::InputMode::AddTeamMember { .. }) => "Email address",
+            Some(crate::tui::app::InputMode::InviteClientUser { .. }) => "Email address",
             None => "",
         };
         let input = Paragraph::new(Line::from(vec![

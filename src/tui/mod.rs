@@ -390,6 +390,33 @@ async fn handle_input_mode(app: &mut App, key: &crossterm::event::KeyEvent) {
                             app.project_data = Some(pd);
                         }
                     }
+                    Some(app::InputMode::InviteClientUser { client_slug }) => {
+                        // Invite user as client role
+                        let invite_body =
+                            serde_json::json!({ "email": buffer, "role": "client" });
+                        let _ = app
+                            .client
+                            .post::<serde_json::Value>("/users/invite", &invite_body)
+                            .await;
+
+                        // Add the invited user to all projects for this client
+                        if let Some(detail) = &app.clients.detail {
+                            for proj in &detail.projects {
+                                let _ = app
+                                    .client
+                                    .add_team_member(&proj.slug, &buffer, "member")
+                                    .await;
+                            }
+                        }
+
+                        // Reload client detail
+                        if let Ok(detail) =
+                            views::clients::fetch_client_detail(&app.client, &client_slug)
+                                .await
+                        {
+                            app.clients.detail = Some(detail);
+                        }
+                    }
                     None => {}
                 }
             }
@@ -1149,17 +1176,32 @@ async fn handle_client_detail_keys(app: &mut App, key: &crossterm::event::KeyEve
                 }
             }
         }
+        KeyCode::Char('W') => {
+            if let Some(detail) = &mut app.clients.detail {
+                detail.show_workspace = !detail.show_workspace;
+            }
+        }
+        KeyCode::Char('u') => {
+            if let View::ClientDetail { slug } = &app.view {
+                app.input_mode = Some(app::InputMode::InviteClientUser {
+                    client_slug: slug.clone(),
+                });
+                app.input_buffer.clear();
+            }
+        }
         KeyCode::Enter => {
             if let Some(detail) = &app.clients.detail {
-                if let Some(project) = detail.projects.get(detail.selected) {
-                    let slug = project.slug.clone();
-                    match views::project::fetch(&app.client, &slug).await {
-                        Ok(pd) => app.project_data = Some(pd),
-                        Err(_) => {
-                            app.project_data = Some(views::project::ProjectData::default())
+                if !detail.show_workspace {
+                    if let Some(project) = detail.projects.get(detail.selected) {
+                        let slug = project.slug.clone();
+                        match views::project::fetch(&app.client, &slug).await {
+                            Ok(pd) => app.project_data = Some(pd),
+                            Err(_) => {
+                                app.project_data = Some(views::project::ProjectData::default())
+                            }
                         }
+                        app.navigate(View::Project { slug });
                     }
-                    app.navigate(View::Project { slug });
                 }
             }
         }

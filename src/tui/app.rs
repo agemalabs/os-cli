@@ -31,6 +31,7 @@ pub enum InputMode {
     ChatInput { project_slug: Option<String>, lead_id: Option<String> },
     ResolveDecision { project_slug: String, decision_id: String },
     AddTeamMember { project_slug: String },
+    InviteClientUser { client_slug: String },
 }
 
 /// Which view is currently active.
