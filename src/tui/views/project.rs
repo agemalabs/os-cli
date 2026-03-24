@@ -209,8 +209,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
         Span::styled(&right, theme::muted_style()),
     ])];
 
-    // Second header line: Client + Phase + Value
-    let mut detail_spans = vec![Span::raw("  ")];
+    // Second header line: Client + Phase + Value + PM
+    let mut detail_spans = vec![Span::raw(" ")];
     if let Some(ref client) = data.client_name {
         detail_spans.push(Span::styled("Client: ", theme::muted_style()));
         detail_spans.push(Span::styled(client.as_str(), theme::label_style()));
@@ -225,6 +225,12 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, _slug: &str, data: &Proj
             format_currency(value),
             theme::label_style(),
         ));
+    }
+    // Show project manager
+    if let Some(pm) = data.team.iter().find(|m| m.role == "manager") {
+        detail_spans.push(Span::raw("   "));
+        detail_spans.push(Span::styled("PM: ", theme::muted_style()));
+        detail_spans.push(Span::styled(&pm.name, theme::active_style()));
     }
     header_lines.push(Line::from(detail_spans));
 
