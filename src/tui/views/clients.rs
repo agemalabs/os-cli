@@ -20,6 +20,7 @@ pub struct ClientSummary {
     pub engagement_count: i64,
     pub project_count: i64,
     pub total_value: Option<f64>,
+    pub account_manager: Option<String>,
 }
 
 /// Engagement summary within a client.
@@ -53,6 +54,8 @@ pub struct ClientDetailData {
     pub primary_contact: Option<String>,
     pub contact_email: Option<String>,
     pub notes: Option<String>,
+    pub account_manager_name: Option<String>,
+    pub account_manager_email: Option<String>,
     pub engagements: Vec<EngagementSummary>,
     pub projects: Vec<ClientProject>,
     pub selected: usize,
@@ -83,6 +86,7 @@ pub async fn fetch_clients(client: &ApiClient) -> anyhow::Result<Vec<ClientSumma
                     engagement_count: v["engagement_count"].as_i64().unwrap_or(0),
                     project_count: v["project_count"].as_i64().unwrap_or(0),
                     total_value: v["total_value"].as_f64(),
+                    account_manager: v["account_manager"].as_str().map(|s| s.to_string()),
                 })
                 .collect()
         })
@@ -127,6 +131,15 @@ pub async fn fetch_client_detail(
         })
         .unwrap_or_default();
 
+    let (account_manager_name, account_manager_email) = if data["account_manager"].is_object() {
+        (
+            data["account_manager"]["name"].as_str().map(|s| s.to_string()),
+            data["account_manager"]["email"].as_str().map(|s| s.to_string()),
+        )
+    } else {
+        (None, None)
+    };
+
     Ok(ClientDetailData {
         id: data["id"].as_str().unwrap_or("").to_string(),
         name: data["name"].as_str().unwrap_or("?").to_string(),
@@ -134,6 +147,8 @@ pub async fn fetch_client_detail(
         primary_contact: data["primary_contact"].as_str().map(|s| s.to_string()),
         contact_email: data["contact_email"].as_str().map(|s| s.to_string()),
         notes: data["notes"].as_str().map(|s| s.to_string()),
+        account_manager_name,
+        account_manager_email,
         engagements,
         projects,
         selected: 0,
@@ -179,6 +194,8 @@ pub fn render_list(frame: &mut Frame, area: Rect, state: &ClientsState, user_nam
             Span::raw("  "),
             Span::styled("Value", theme::muted_style()),
             Span::raw("      "),
+            Span::styled("AM", theme::muted_style()),
+            Span::raw("              "),
             Span::styled("Contact", theme::muted_style()),
         ]),
         Line::from(Span::styled(
@@ -215,6 +232,11 @@ pub fn render_list(frame: &mut Frame, area: Rect, state: &ClientsState, user_nam
                 .map(format_currency)
                 .unwrap_or_else(|| "\u{2014}".to_string());
 
+            let am = c
+                .account_manager
+                .as_deref()
+                .unwrap_or("\u{2014}");
+
             let contact = c
                 .primary_contact
                 .as_deref()
@@ -229,6 +251,7 @@ pub fn render_list(frame: &mut Frame, area: Rect, state: &ClientsState, user_nam
                 ),
                 Span::raw("      "),
                 Span::styled(format!("{:<10}", value_str), theme::label_style()),
+                Span::styled(format!("{:<16}", truncate(am, 14)), theme::muted_style()),
                 Span::styled(truncate(contact, 20), theme::muted_style()),
             ]));
         }
@@ -289,6 +312,10 @@ pub fn render_detail(frame: &mut Frame, area: Rect, detail: &ClientDetailData, u
             format!(" \u{00b7} {}", email),
             theme::muted_style(),
         ));
+    }
+    if let Some(ref am) = detail.account_manager_name {
+        detail_spans.push(Span::styled("  AM: ", theme::muted_style()));
+        detail_spans.push(Span::styled(am.as_str(), theme::active_style()));
     }
     header_lines.push(Line::from(detail_spans));
 
